@@ -1,0 +1,33 @@
+# ── 前端 ──
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+frontend/.turbo/
+
+# ── 后端 ──
+backend/__pycache__/
+backend/agent/__pycache__/
+backend/*.pyc
+backend/outputs/
+backend/data/
+backend/skills/
+backend/.env
+
+# ── 通用 ──
+.git/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+
+# ── IDE ──
+.idea/
+.vscode/
+*.sublime-workspace
+
+# ── Claude Code 本地配置 ──
+.claude/
