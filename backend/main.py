@@ -1,15 +1,19 @@
 """UniEmail Agent — FastAPI 后端服务 (Phase 5: 任务隔离 + 持久化 + 分页)"""
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import re
 import uuid
 import json
 import asyncio
 import logging
+from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
-
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -40,6 +44,7 @@ agent = ClaudeAgent()
 
 # 正在执行 Agent 的任务追踪（task_id -> asyncio.Task），防止重复执行
 _running_agent_tasks: dict[str, asyncio.Task] = {}
+_running_agent_info: dict[str, dict] = {}
 
 
 @asynccontextmanager
@@ -104,7 +109,8 @@ class MailSendRequest(BaseModel):
     confirmed: bool = False
     highVolumeConfirmed: bool = False
 
-
+class TerminateRequest(BaseModel):
+    task_id: str
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
@@ -176,6 +182,42 @@ async def delete_task(task_id: str):
     return {"ok": ok}
 
 
+@app.get("/api/agent/active")
+async def get_active_agents():
+    return {"active_tasks": list(_running_agent_info.values())}
+
+
+@app.post("/api/agent/terminate")
+async def terminate_agent(req: TerminateRequest):
+    task_id = req.task_id
+    terminated = False
+
+    # 1. 终止 Agent 进程中的外部子进程
+    if hasattr(agent, "stop_task"):
+        terminated = agent.stop_task(task_id)
+
+    # 2. 取消 websocket 和协程任务
+    if task_id in _running_agent_tasks:
+        coro_task = _running_agent_tasks[task_id]
+        if not coro_task.done():
+            coro_task.cancel()
+            terminated = True
+
+    # 3. 更新历史记录中的状态为失败，并添加中断系统消息
+    if terminated:
+        history.update_status(task_id, "failed")
+        ts = datetime.now().strftime("%H:%M:%S")
+        history.add_message(task_id, {
+            "id": f"terminate-{task_id[:8]}-{ts}",
+            "role": "agent",
+            "content": "任务已被人工强制关闭，后台 Agent 进程已被安全终止以节省资源与额度。",
+            "timestamp": ts,
+        })
+        return {"ok": True, "message": "Task successfully terminated"}
+    else:
+        return {"ok": False, "message": "Task not running or already finished"}
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def create_task(req: ChatRequest):
     task_id = req.task_id or str(uuid.uuid4())
@@ -219,12 +261,17 @@ def _safe_resolve(base: Path, *parts: str) -> Path | None:
 @app.get("/api/download/{task_id}/{filename:path}")
 async def download_file_tasked(task_id: str, filename: str):
     if ".." in filename or ".." in task_id:
-        return {"error": "invalid filename"}
+        raise HTTPException(status_code=400, detail="invalid filename")
     safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
     base = _BASE_OUTPUT_DIR.resolve()
     filepath = _safe_resolve(base, safe_tid, filename)
     if filepath is None or not filepath.exists():
-        return {"error": "file not found"}
+        # 后备方案：如果任务专属目录下未找到（可能是自定义脚本写到了根目录），尝试在 outputs 根目录下查找该文件
+        fallback = _safe_resolve(base, filename)
+        if fallback and fallback.exists():
+            filepath = fallback
+        else:
+            raise HTTPException(status_code=404, detail="file not found")
     ext = filepath.suffix.lower()
     return FileResponse(
         path=str(filepath),
@@ -236,7 +283,7 @@ async def download_file_tasked(task_id: str, filename: str):
 @app.get("/api/download/{filename}")
 async def download_file(filename: str):
     if ".." in filename or "/" in filename or "\\" in filename:
-        return {"error": "invalid filename"}
+        raise HTTPException(status_code=400, detail="invalid filename")
     base = _BASE_OUTPUT_DIR.resolve()
     filepath = _safe_resolve(base, filename)
     if filepath and filepath.exists():
@@ -257,10 +304,102 @@ async def download_file(filename: str):
                     filename=filename,
                     media_type=MIME_MAP.get(ext, "application/octet-stream"),
                 )
-    return {"error": "file not found"}
+    raise HTTPException(status_code=404, detail="file not found")
 
 
 SKILLS_DIR = Path(__file__).parent / "skills"
+
+
+GLOBAL_SKILLS_FILE = SKILLS_DIR / "global_crawling_rules.md"
+
+
+def _update_global_skills(uni_name: str, task_data: dict) -> None:
+    if uni_name == "unknown":
+        return
+
+    # 从历史执行消息中深度挖掘有商业可复用价值的技术资产 (URL、关键 CSS 类、反爬经验、JS 加载发现)
+    messages = task_data.get("messages", [])
+    extracted_urls = set()
+    extracted_selectors = set()
+    special_tips = []
+
+    for m in messages:
+        content = m.get("content", "")
+        # 提取 URL
+        urls = re.findall(r'https?://[^\s\'"）]+', content)
+        for u in urls:
+            u_clean = u.rstrip(".,;:，；。)")
+            # 过滤有价值的大学链接
+            if any(x in u_clean for x in (uni_name, "tsinghua", "nju", "seu", "njust", "njupt", "bupt")):
+                extracted_urls.add(u_clean)
+
+        # 提取关键选择器 / DOM 标记
+        selectors = re.findall(r'(\.[a-zA-Z0-9_-]{3,20}|#[a-zA-Z0-9_-]{3,20}|frag="[^"]+")', content)
+        for s in selectors:
+            if s not in (".xlsx", ".csv", ".json", ".html", ".png", ".py", ".md", ".pdf", ".docx"):
+                extracted_selectors.add(s)
+
+        # 特征提取
+        keywords = ["description", "Article_Title", "内联", "反爬", "邮箱规则", "职称", "JS动态", "iframe", "requests", "Playwright"]
+        for kw in keywords:
+            if kw in content and kw not in special_tips:
+                special_tips.append(kw)
+
+    # 仅在挖掘出真实有效模式时才更新全局文件
+    if not extracted_urls and not extracted_selectors:
+        return
+
+    SKILLS_DIR.mkdir(exist_ok=True)
+    content_lines = []
+    if GLOBAL_SKILLS_FILE.exists():
+        try:
+            with open(GLOBAL_SKILLS_FILE, "r", encoding="utf-8") as f:
+                content_lines = f.readlines()
+        except OSError:
+            pass
+
+    if not content_lines:
+        content_lines = [
+            "# 🌍 全局高校教师邮箱爬取技能知识库 (Global Centralized Crawling Skills)\n",
+            "\n",
+            "本文件是由所有任务共同维护的全局经验共享文件。每当一个任务成功爬取完毕，后端便会自动从中提取出最成功的核心策略（包括特定高校官网的最佳路径、HTML 选择器结构、反爬绕过方案等），以供后续所有新任务在执行前进行自动读取、自主学习与智能升级。\n",
+            "\n",
+        ]
+
+    full_text = "".join(content_lines)
+
+    # 组装学校策略卡片
+    school_header = f"## 🏫 {uni_name} 爬取策略与模式"
+    school_content = []
+    school_content.append(f"{school_header}\n")
+    school_content.append(f"*   **最近优化时间**：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    if extracted_urls:
+        school_content.append("*   **经验证可用的师资/院系 URL 导航**：\n")
+        for u in sorted(extracted_urls):
+            school_content.append(f"    *   {u}\n")
+    if extracted_selectors:
+        school_content.append("*   **关键 HTML 提取特征及 DOM 选择器**：\n")
+        for s in sorted(extracted_selectors):
+            school_content.append(f"    *   `{s}`\n")
+    if special_tips:
+        school_content.append(f"*   **智能反爬与信息提取策略发现**：系统验证 `{', '.join(special_tips)}` 模式有特效，请优先延续此类提取策略。\n")
+    school_content.append("\n")
+
+    new_school_text = "".join(school_content)
+
+    # 正则精准更新，防止重复追加
+    pattern = rf"## 🏫 {re.escape(uni_name)} 爬取策略与模式.*?(?=\n## 🏫 |\Z)"
+    if re.search(pattern, full_text, re.DOTALL):
+        updated_text = re.sub(pattern, new_school_text.strip(), full_text, flags=re.DOTALL)
+    else:
+        updated_text = full_text.rstrip() + "\n\n" + new_school_text
+
+    try:
+        with open(GLOBAL_SKILLS_FILE, "w", encoding="utf-8") as f:
+            f.write(updated_text)
+        logger.info(f"Global skills knowledgebase updated for {uni_name}!")
+    except OSError as e:
+        logger.error(f"Global skills save failed: {e}")
 
 
 def _generate_skills(task_id: str, task_data: dict) -> None:
@@ -278,7 +417,10 @@ def _generate_skills(task_id: str, task_data: dict) -> None:
         content = m.get("content", "")
         if "大学" in content or "学院" in content:
             import re
-            match = re.search(r"([一-鿿]{2,4}(?:大学|学院))", content)
+            match = re.search(r"([一-防]{2,4}(?:大学|学院))", content)
+            if not match:
+                # 兼容汉字匹配范围扩展
+                match = re.search(r"([一-鿿]{2,4}(?:大学|学院))", content)
             if match:
                 uni_name = match.group(1)
                 break
@@ -296,9 +438,13 @@ def _generate_skills(task_id: str, task_data: dict) -> None:
         "message_count": len(messages),
         "status": task_data.get("status", ""),
         "date": task_data.get("date", ""),
-        "extracted_at": __import__("datetime").datetime.now().isoformat(),
+        "extracted_at": datetime.now().isoformat(),
     }
 
+    # 1. 共同维护并动态丰富同一个全局共享技能文件（Global shared skill file）
+    _update_global_skills(uni_name, task_data)
+
+    # 2. 依然保留隔离专属的元数据 JSON 供系统检索
     skill_file = SKILLS_DIR / f"{uni_name}_{task_id[:8]}.json"
     try:
         with open(skill_file, "w", encoding="utf-8") as f:
@@ -414,14 +560,51 @@ async def mail_job_export(job_id: str, format: str = "csv"):
     )
 
 
+def _load_global_skills() -> str:
+    """读取全局共享爬取技能知识库，供注入到 Agent 提示词中。
+
+    返回格式化后的 Markdown 字符串；若文件不存在或为空则返回空字符串。
+    """
+    if not GLOBAL_SKILLS_FILE.exists():
+        return ""
+    try:
+        text = GLOBAL_SKILLS_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if not text:
+        return ""
+    return (
+        "### 📚 全局共享技能与爬取经验库\n"
+        "以下是系统从过往所有成功任务中自动提炼的高校爬取经验，"
+        "请在执行本次任务前仔细阅读并优先使用其中已验证的 URL、选择器和反爬策略：\n\n"
+        f"{text}\n\n"
+        "---\n"
+    )
+
+
 def _build_context_prompt(task_data: dict, latest_user_msg: str) -> tuple[str, str, bool]:
     messages = task_data.get("messages", [])
     user_msgs = [m for m in messages if m.get("role") == "user"]
 
-    if len(user_msgs) <= 1:
-        return latest_user_msg, latest_user_msg, False
+    global_skills = _load_global_skills()
 
-    lines = [
+    if len(user_msgs) <= 1:
+        # 新任务：如果有全局技能则在任务需求前注入
+        if global_skills:
+            prompt = (
+                global_skills
+                + "### 具体任务需求\n"
+                + latest_user_msg
+            )
+        else:
+            prompt = latest_user_msg
+        return prompt, latest_user_msg, False
+
+    lines = []
+    # 追问场景：同样注入全局技能（最新知识库可能在上轮任务后有新增）
+    if global_skills:
+        lines.append(global_skills)
+    lines += [
         "## 任务上下文（同一任务的后续追问）\n",
         "以下是本任务已完成工作的摘要，请基于此上下文处理当前请求：\n",
     ]
@@ -546,7 +729,7 @@ async def _progress_pump(ws: WebSocket, stop_event: asyncio.Event) -> None:
                 "message": PROGRESS_MESSAGES[min(idx, len(PROGRESS_MESSAGES) - 1)],
                 "step": min(idx + 1, len(PROGRESS_MESSAGES)),
                 "total": len(PROGRESS_MESSAGES),
-                "timestamp": __import__("datetime").datetime.now().strftime("%H:%M:%S"),
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
             }, ensure_ascii=False))
         except Exception:
             return
@@ -603,14 +786,18 @@ async def agent_logs(ws: WebSocket, task_id: str):
 
     current_task = asyncio.current_task()
     _running_agent_tasks[task_id] = current_task
+    _running_agent_info[task_id] = {
+        "task_id": task_id,
+        "title": user_message or "未命名任务",
+        "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
 
     try:
         msg_seq = 0
 
         if file_requests:
             logger.info(f"task {task_id}: file request detected, skipping agent, {len(file_requests)} file(s)")
-            from datetime import datetime as _dt
-            ts = _dt.now().strftime("%H:%M:%S")
+            ts = datetime.now().strftime("%H:%M:%S")
             for fr in file_requests:
                 log = {
                     "type": "download",
@@ -657,23 +844,44 @@ async def agent_logs(ws: WebSocket, task_id: str):
                 "content": user_message,
             })
 
+        # 根据会话中的首条用户消息内容决定整个会话的类型（避免追问被误判为爬取任务）
+        first_user_content = user_message
+        for m in task_data.get("messages", []):
+            if m.get("role") == "user":
+                first_user_content = m.get("content", "")
+                break
+
+        is_crawl = await agent._is_crawl_task(first_user_content)
         progress_stop = asyncio.Event()
-        progress_task = asyncio.create_task(_progress_pump(ws, progress_stop))
+        progress_task = None
+        if is_crawl:
+            progress_task = asyncio.create_task(_progress_pump(ws, progress_stop))
         last_agent_line = ""
         downloads: list[dict] = []
 
-        async for log in agent.execute(prompt, task_id, is_continuation=is_followup):
+        had_error = False
+        async for log in agent.execute(
+            prompt,
+            task_id,
+            is_continuation=is_followup,
+            is_crawl_session=is_crawl,
+            current_user_message=user_message
+        ):
             msg_seq += 1
             msg_type = log.get("type", "agent")
             if msg_type == "log":
-                last_agent_line = log.get("message", "") or last_agent_line
-                logger.info("task %s agent: %s", task_id, (last_agent_line or "")[:500])
-                continue
+                text = log.get("message", "") or ""
+                if text:
+                    last_agent_line = (last_agent_line + " " + text).strip() if last_agent_line else text
+                logger.info("task %s agent: %s", task_id, text[:500])
             if msg_type == "download":
                 downloads.append(log)
-            if msg_type == "done":
-                last_agent_line = log.get("message", "") or last_agent_line
                 continue
+            if msg_type == "done":
+                last_agent_line = last_agent_line or log.get("message", "")
+                continue
+            if msg_type == "error":
+                had_error = True
             role_map = {"log": "log", "download": "download", "error": "agent", "done": "agent"}
             # 先写历史再发 WS，防止刷新时消息丢失
             history.add_message(task_id, {
@@ -687,23 +895,25 @@ async def agent_logs(ws: WebSocket, task_id: str):
             await ws.send_text(json.dumps(log, ensure_ascii=False))
 
         progress_stop.set()
-        try:
-            await progress_task
-        except Exception:
-            pass
+        if progress_task:
+            try:
+                await progress_task
+            except Exception:
+                pass
 
-        from datetime import datetime as _dt
-        ts = _dt.now().strftime("%H:%M:%S")
-        summary = _final_summary(last_agent_line, downloads)
-        history.add_message(task_id, {
-            "id": f"done-{task_id[:8]}-{ts}",
-            "role": "agent",
-            "content": summary,
-            "timestamp": ts,
-        })
-        await ws.send_text(json.dumps({"type": "done", "message": summary, "timestamp": ts}, ensure_ascii=False))
-
-        history.update_status(task_id, "completed")
+        if had_error:
+            history.update_status(task_id, "failed")
+        else:
+            ts = datetime.now().strftime("%H:%M:%S")
+            summary = _final_summary(last_agent_line, downloads)
+            history.add_message(task_id, {
+                "id": f"done-{task_id[:8]}-{ts}",
+                "role": "agent",
+                "content": summary,
+                "timestamp": ts,
+            })
+            await ws.send_text(json.dumps({"type": "done", "message": summary, "timestamp": ts}, ensure_ascii=False))
+            history.update_status(task_id, "completed")
 
         final_task = history.get(task_id)
         if final_task:
@@ -712,18 +922,34 @@ async def agent_logs(ws: WebSocket, task_id: str):
         await ws.close()
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: {task_id}")
+        # 前端刷新/断网导致 WS 断开：标记为 failed，避免任务永久 stuck 在 running
+        logger.info(f"WebSocket disconnected: {task_id} — marking as failed")
         history.update_status(task_id, "failed")
+        _running_agent_tasks.pop(task_id, None)
+        _running_agent_info.pop(task_id, None)
+        return
     except asyncio.CancelledError:
-        logger.info(f"task {task_id} cancelled by new connection, exiting silently")
+        logger.info(f"task {task_id} cancelled, cleaning up")
         history.update_status(task_id, "failed")
+        _ts = datetime.now().strftime("%H:%M:%S")
+        history.add_message(task_id, {
+            "id": f"cancel-{task_id[:8]}-{_ts}",
+            "role": "agent",
+            "content": "任务已被取消",
+            "timestamp": _ts,
+        })
+        if _running_agent_tasks.get(task_id) is current_task:
+            _running_agent_tasks.pop(task_id, None)
+            _running_agent_info.pop(task_id, None)
+        if hasattr(agent, "stop_task"):
+            agent.stop_task(task_id)
     except Exception as e:
         err_detail = f"{type(e).__name__}: {str(e)[:300]}"
         logger.error(f"WebSocket error {task_id}: {err_detail}")
         history.update_status(task_id, "failed")
         err_msg = {"type": "error", "message": f"execution error: {err_detail}"}
         history.add_message(task_id, {
-            "id": f"error-{task_id[:8]}-{__import__('datetime').datetime.now().strftime('%H%M%S')}",
+            "id": f"error-{task_id[:8]}-{datetime.now().strftime('%H%M%S')}",
             "role": "agent",
             "content": err_msg["message"],
         })
@@ -731,7 +957,18 @@ async def agent_logs(ws: WebSocket, task_id: str):
             await ws.send_text(json.dumps(err_msg, ensure_ascii=False))
         except Exception:
             pass
-        await ws.close()
-    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
         if _running_agent_tasks.get(task_id) is current_task:
             _running_agent_tasks.pop(task_id, None)
+            _running_agent_info.pop(task_id, None)
+        if hasattr(agent, "stop_task"):
+            agent.stop_task(task_id)
+    else:
+        # 正常完成：清除进程记录
+            _running_agent_tasks.pop(task_id, None)
+            _running_agent_info.pop(task_id, None)
+            if hasattr(agent, "stop_task"):
+                agent.stop_task(task_id)

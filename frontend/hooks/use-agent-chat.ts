@@ -18,8 +18,22 @@ function nextId(): string {
   return `msg-${Date.now()}-${messageCounter}`;
 }
 
+function isCrawlTask(message: string): boolean {
+  const keywords = [
+    "抓取", "爬取", "爬虫", "邮箱", "教师",
+    "crawl", "scrape", "email", "faculty", "teacher", "学院",
+  ];
+  const lower = message.toLowerCase();
+  const hits = keywords.filter(kw => lower.includes(kw)).length;
+  const combos = ["教师邮箱", "crawl email", "scrape email"];
+  if (combos.some(c => lower.includes(c))) {
+    return true;
+  }
+  return hits >= 2;
+}
+
 export function useAgentChat({
-   streaming = true,
+   streaming = false,
 }: {
   /** 是否启用 WebSocket 流式连接。侧边栏等不需要流式推送的组件设为 false。 */
   streaming?: boolean;
@@ -67,16 +81,12 @@ export function useAgentChat({
   const { stop: stopStream } = useTaskStream({
     taskId: activeTaskId,
     enabled: streamEnabled,
-    onFinish: (tid) => {
-      // 任务完成后的额外逻辑
-    },
-    onError: (tid, msg) => {
-      // 错误已由 useTaskStream 追加消息
-    },
   });
 
   // ===== 本地状态追踪（避免闭包陈旧） =====
   const lastSentContentRef = useRef<string>("");
+  // 模拟进度计时器引用（防止未清除的 interval）
+  const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ===== 自动恢复上次活跃任务 =====
   const initialLoadDoneRef = useRef(false);
@@ -146,15 +156,38 @@ export function useAgentChat({
         content,
       };
 
+      appendMessage(taskId, userMsg);
+
+      // 模拟进度反馈（随机流式输出）
+      const simulatedSentences = [
+        "正在全网搜索…",
+        "正在访问目标网站…",
+        "正在提取邮箱信息…",
+        "正在清洗数据…",
+        "正在生成报告…",
+        "正在压缩文件…",
+      ];
+
+      // 占位消息（后端连接提示）
+      const isCrawl = isCrawlTask(content);
       const placeholderMsg: Message = {
         id: nextId(),
         role: "agent",
-        content: "正在连接后端...",
+        content: isCrawl ? "正在连接后端..." : "正在思考中...",
         isStreaming: true,
       };
-
-      appendMessage(taskId, userMsg);
       appendMessage(taskId, placeholderMsg);
+
+      if (isCrawl) {
+        let step = 0;
+        simulationRef.current = setInterval(() => {
+          const text = simulatedSentences[step % simulatedSentences.length];
+          useChatStore.getState().updateMessage(taskId, placeholderMsg.id, {
+            content: text,
+          });
+          step++;
+        }, 1000);
+      }
 
       // 确保当前视图切换到该任务
       switchToTask(taskId);
@@ -168,16 +201,14 @@ export function useAgentChat({
         addRunningTask(taskId);
 
         // 更新 placeholder
-        const confirmMsg: Message = {
-          id: placeholderMsg.id,
-          role: "agent",
-          content: `收到任务，正在为你执行：**${content}**`,
-          isStreaming: true,
-        };
-
         useChatStore.getState().updateMessage(taskId, placeholderMsg.id, {
-          content: confirmMsg.content,
+          content: isCrawl ? `收到任务，正在为你执行：**${content}**` : "",
         });
+
+        // 停止模拟进度
+        if (simulationRef.current) {
+          clearInterval(simulationRef.current);
+        }
 
         // 仅当仍处于 connecting 状态时才切换到 streaming
         // 防止 API 延迟返回时覆盖 WebSocket onClose 已设置的状态
@@ -186,6 +217,11 @@ export function useAgentChat({
           setComposerState(taskId, "streaming");
         }
       } catch (err) {
+        // 停止模拟进度
+        if (simulationRef.current) {
+          clearInterval(simulationRef.current);
+        }
+
         const errorMsg: Message = {
           id: nextId(),
           role: "agent",

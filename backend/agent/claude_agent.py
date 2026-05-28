@@ -65,6 +65,7 @@ class ClaudeAgent:
 
     def __init__(self):
         self._last_stderr = ""
+        self.active_procs = {}
         self._check_claude()
 
     def _check_claude(self) -> bool:
@@ -77,16 +78,49 @@ class ClaudeAgent:
         logger.info(f"claude CLI 已就绪: {path}")
         return True
 
+    def stop_task(self, task_id: str) -> bool:
+        """终止正在运行的任务子进程。"""
+        proc = self.active_procs.pop(task_id, None)
+        if proc:
+            try:
+                proc.kill()
+                logger.info(f"成功终止 Task {task_id} 的子进程")
+                return True
+            except Exception as e:
+                logger.error(f"终止 Task {task_id} 的子进程失败: {e}")
+        return False
+
     def _timestamp(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
 
     async def execute(
-        self, message: str, task_id: str = "", is_continuation: bool = False
+        self,
+        message: str,
+        task_id: str = "",
+        is_continuation: bool = False,
+        is_crawl_session: bool = True,
+        current_user_message: str | None = None
     ) -> AsyncGenerator[dict, None]:
         """执行任务。先尝试 Claude Code，失败则回退到 Playwright。
 
         task_id 用于任务隔离：输出文件写入 outputs/{task_id}/ 子目录。
         is_continuation 为 True 时跳过爬取策略注入（上下文已由 main.py 构建）。"""
+        # 如果不是爬取任务，直接进行智能分流（免拉起 CLI 进程以达到毫秒级响应）
+        if not is_crawl_session:
+            eval_msg = current_user_message or message
+            has_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+            if has_key:
+                async for log in self._respond_conversational(eval_msg):
+                    yield log
+                return
+            else:
+                # 无 Key 时，先发一条友好的秒回优化提示，然后自动降级使用 Claude CLI 获取真实回答
+                yield {
+                    "type": "log",
+                    "message": "💡 **提示**：检测到当前尚未配置 `DEEPSEEK_API_KEY`。系统已自动为你降级为 Claude CLI 流程（冷启动及索引需要约 10 秒）。\n\n*   **秒回优化建议**：在 `backend/.env` 中配置 `DEEPSEEK_API_KEY` 环境变量即可彻底激活 DeepSeek 毫秒级流式秒回通道！\n\n---\n\n正在为你生成回答...\n",
+                    "timestamp": self._timestamp()
+                }
+
         try:
             async for log in self._run_claude(message, task_id, is_continuation):
                 yield log
@@ -97,7 +131,7 @@ class ClaudeAgent:
             logger.warning(f"V2 Claude Code 执行失败: {err_detail} || TRACEBACK: {tb_lines}")
 
             # 仅爬取任务才回退到 Playwright，追问/普通问答不回退
-            if self._is_crawl_task(message) and not is_continuation:
+            if is_crawl_session and not is_continuation:
                 yield {
                     "type": "log",
                     "message": f"V2 Claude Code 不可用（{err_detail}），切换到内置浏览器 Agent",
@@ -122,16 +156,66 @@ class ClaudeAgent:
                     "timestamp": self._timestamp(),
                 }
 
-    def _is_crawl_task(self, message: str) -> bool:
-        """检测是否为爬取类任务。需命中 ≥2 个关键词，避免误判日常问答。"""
+    async def _is_crawl_task(self, message: str) -> bool:
+        """使用 DeepSeek 大模型对用户意图进行精准分类，判定是否为爬取/数据采集类任务。
+        
+        若无 API 密钥，回退到本地关键词硬匹配规则，保障系统鲁棒性。
+        """
+        import os
+        import json
+        
+        # 1. 尝试调用 DeepSeek API 进行意图识别
+        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            try:
+                import openai
+                from openai import AsyncOpenAI
+                
+                # 配置 Client，支持 DeepSeek 官方和 OpenAI 兼容代理
+                if os.environ.get("DEEPSEEK_API_KEY"):
+                    base_url = "https://api.deepseek.com/v1"
+                    model = "deepseek-chat"
+                else:
+                    base_url = os.environ.get("OPENAI_BASE_URL") or None
+                    model = os.environ.get("OPENAI_API_MODEL") or ("deepseek-chat" if base_url and "deepseek" in base_url else "gpt-4o-mini")
+                
+                client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+                
+                system_prompt = (
+                    "你是一个精准的任务意图分类器。请判断用户输入的请求是否是关于高校教师邮箱抓取、"
+                    "师资队伍信息采集、网页邮箱抓取、爬虫提取等数据采集或批量清洗任务。\n"
+                    "请仅回复 CRAWL（若是爬虫/抓取/采集/提取任务）或 CHAT（若是日常闲聊、通用问答、代码解释或系统配置类普通会话）。\n"
+                    "绝对不能回复除 CRAWL 和 CHAT 以外的任何其他内容或标点符号！"
+                )
+                
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": message}
+                    ],
+                    max_tokens=5,
+                    temperature=0.0
+                )
+                
+                result = response.choices[0].message.content.strip().upper()
+                logger.info(f"[Intent Classifier] Model {model} classified message intent: {result}")
+                if "CRAWL" in result:
+                    return True
+                if "CHAT" in result:
+                    return False
+            except Exception as e:
+                logger.warning(f"[Intent Classifier] DeepSeek 意图识别异常（将回退本地规则）: {e}")
+                
+        # 2. 兜底策略：本地关键词硬匹配规则
         keywords = [
             "抓取", "爬取", "爬虫", "邮箱", "教师",
             "crawl", "scrape", "email", "faculty", "teacher", "学院",
         ]
         lower = message.lower()
         hits = sum(1 for kw in keywords if kw in lower)
-        # 特殊短语直接判定（含"教师邮箱"、"抓取邮箱"、"爬取教师"等组合）
-        combos = ["教师邮箱", "抓取", "爬取", "爬虫", "crawl email", "scrape email"]
+        # 强信号多词短语直接判定
+        combos = ["教师邮箱", "crawl email", "scrape email"]
         if any(c in lower for c in combos):
             return True
         return hits >= 2
@@ -148,7 +232,7 @@ class ClaudeAgent:
             pass
 
     def _start_subprocess_thread(
-        self, cmd: list[str], env: dict, queue: asyncio.Queue
+        self, cmd: list[str], env: dict, queue: asyncio.Queue, task_id: str
     ) -> None:
         """Windows 兼容：在后台线程启动 subprocess.Popen，stdout 行写入 asyncio.Queue。
 
@@ -170,6 +254,7 @@ class ClaudeAgent:
                     env=env,
                     startupinfo=si,
                 )
+                self.active_procs[task_id] = proc
 
                 def _read_stderr():
                     try:
@@ -203,6 +288,7 @@ class ClaudeAgent:
             except Exception as e:
                 logger.error(f"子进程线程异常: {e}")
             finally:
+                self.active_procs.pop(task_id, None)
                 stop_event.set()
                 try:
                     queue.put_nowait({"_type": "done"})
@@ -295,14 +381,34 @@ class ClaudeAgent:
 
         try:
             if is_threaded:
+                msg_timeout = 600  # 首条消息等 10 分钟，后续每条等 5 分钟
                 while True:
-                    msg = await process.get()
+                    try:
+                        msg = await asyncio.wait_for(process.get(), timeout=msg_timeout)
+                    except asyncio.TimeoutError:
+                        logger.warning("[SUBDEBUG] 队列读取超时（%ss），终止 task %s", msg_timeout, task_id)
+                        proc = self.active_procs.pop(task_id, None)
+                        if proc:
+                            try: proc.kill()
+                            except Exception: pass
+                        yield {
+                            "type": "error",
+                            "message": f"Agent 长时间无响应（>{msg_timeout}s），已自动终止",
+                            "timestamp": self._timestamp(),
+                        }
+                        return
+                    msg_timeout = 300
+                    logger.info("[SUBDEBUG] 收到队列消息 _type=%s", msg.get("_type", "?"))
                     if msg["_type"] == "line":
+                        line_preview = msg["data"][:100] if isinstance(msg.get("data"), str) else "?"
+                        logger.info("[SUBDEBUG] 处理行: %s", line_preview)
                         async for log in _handle_line(msg["data"]):
                             yield log
                         if should_stop:
+                            logger.info("[SUBDEBUG] 达到最大步数，停止处理")
                             break
                     elif msg["_type"] == "done":
+                        logger.info("[SUBDEBUG] 收到线程完成信号")
                         break
             else:
                 async for raw_line in process.stdout:
@@ -326,6 +432,7 @@ class ClaudeAgent:
             }
             return
         finally:
+            self.active_procs.pop(task_id, None)
             if not is_threaded:
                 stderr_task.cancel()
                 try:
@@ -421,7 +528,7 @@ class ClaudeAgent:
             raise RuntimeError("claude CLI 未安装")
 
         # 爬取任务自动注入策略 prompt（追问时跳过，上下文已由 main.py 构建）
-        if self._is_crawl_task(message) and not is_continuation:
+        if await self._is_crawl_task(message) and not is_continuation:
             output_dir = f"outputs/{task_id}" if task_id else "outputs"
             prompt = CRAWL_STRATEGY_PROMPT.replace("{{OUTPUT_DIR}}", output_dir) + "\n" + message
             logger.info("检测到爬取任务，已注入爬取策略 prompt")
@@ -430,14 +537,12 @@ class ClaudeAgent:
 
         cmd = [
             "claude",
-            "-p",
+            "-p", prompt,
             "--output-format", "stream-json",
             "--verbose",
             "--no-session-persistence",
             "--permission-mode", "bypassPermissions",
             "--max-budget-usd", "20.0",
-            "--model", "deepseek-v4-flash",
-            prompt,
         ]
 
         env = os.environ.copy()
@@ -458,7 +563,7 @@ class ClaudeAgent:
         # 使用线程 + subprocess.Popen + asyncio.Queue 桥接方案
         if sys.platform == "win32":
             queue = asyncio.Queue()
-            self._start_subprocess_thread(cmd, env, queue)
+            self._start_subprocess_thread(cmd, env, queue, task_id)
             async for log in self._process_stream(queue, task_id, task_start, message):
                 yield log
             return
@@ -470,10 +575,11 @@ class ClaudeAgent:
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
+            self.active_procs[task_id] = process
         except NotImplementedError as nie:
             logger.warning(f"create_subprocess_exec 不可用，回退线程方案: {nie}")
             queue = asyncio.Queue()
-            self._start_subprocess_thread(cmd, env, queue)
+            self._start_subprocess_thread(cmd, env, queue, task_id)
             async for log in self._process_stream(queue, task_id, task_start, message):
                 yield log
             return
@@ -525,12 +631,27 @@ class ClaudeAgent:
 
         results: list[dict] = []
 
-        # ── 递归收集所有 CSV，只认任务启动后创建/修改的 ──
+        # ── 递归收集所有 CSV ──
         candidates: list[Path] = []
         for f in _BASE_OUTPUT_DIR.rglob("*.csv"):
             try:
-                if f.stat().st_mtime >= after_timestamp and f.stat().st_size >= 200:
-                    candidates.append(f)
+                # 增加 10 秒时间戳差值容差，杜绝不同操作系统/文件系统精度或轻微时钟偏移引起的新文件漏检
+                if f.stat().st_mtime < after_timestamp - 10 or f.stat().st_size < 200:
+                    continue
+                
+                # 任务隔离强校验：如果文件处于其他任务子目录下，则进行过滤排除，防止跨任务数据交叉污染
+                if task_id:
+                    safe_tid = task_id.replace("/", "_").replace("\\", "_")
+                    try:
+                        parent_parts = f.relative_to(_BASE_OUTPUT_DIR).parts
+                        if len(parent_parts) > 1:
+                            subfolder = parent_parts[0]
+                            if subfolder != safe_tid:
+                                continue
+                    except ValueError:
+                        continue
+                
+                candidates.append(f)
             except OSError:
                 continue
 
@@ -704,3 +825,175 @@ class ClaudeAgent:
             }
 
         return None
+
+    async def _respond_conversational(self, message: str) -> AsyncGenerator[dict, None]:
+        """轻量级直接 API 响应非爬取类日常会话，避免拉起 CLI 进程。
+        
+        如果配置了 API Key，直接请求大模型 API，否则使用本地规则响应常见问答。
+        """
+        import os
+        
+        # 常见日常问答本地规则，零延迟秒回
+        lower_msg = message.strip().lower()
+        
+        # 1. 你好等问候
+        if any(x in lower_msg for x in ["你好", "hello", "hi", "hey"]):
+            yield {
+                "type": "log",
+                "message": "你好！我是 **UniEmail Agent**。\n\n我是一个专为学术界和高校设计的教师邮箱自动抓取与分析助手。我可以帮你自动爬取各高校官网的教师邮箱，并支持导出 CSV/XLSX 等多种格式。\n\n你可以对我说：“帮我抓取南京大学计算机学院的教师邮箱”，或者问我高校抓取的规则与支持的学校！",
+                "timestamp": self._timestamp()
+            }
+            yield {
+                "type": "done",
+                "message": "已完成本地秒回响应",
+                "timestamp": self._timestamp()
+            }
+            return
+            
+        # 2. 你是谁/自我介绍
+        if any(x in lower_msg for x in ["你是谁", "介绍", "功能", "who are you"]):
+            yield {
+                "type": "log",
+                "message": "我是 **UniEmail Agent**！\n\n### 🌟 我的主要功能包括：\n1. **多源多路径爬取**：深度挖掘高校院系「师资队伍」页面，支持个人详情页深度抓取。\n2. **智能数据清洗**：清洗各种复杂的混淆字符（如 `[at]` -> `@`），过滤无效或公共邮箱。\n3. **多格式数据导出**：支持 CSV, Excel (XLSX), Markdown, HTML, PDF, Word (DOCX) 导出。\n4. **任务与文件隔离**：每个任务专属输出目录，防止数据交叉污染。\n5. **全局技能库**：从过往成功的抓取中自动沉淀提取高校官网的最佳 DOM 选择器和反爬经验。\n\n你可以尝试输入高校抓取任务，我会立即为你启动浏览器自动化爬取进程！",
+                "timestamp": self._timestamp()
+            }
+            yield {
+                "type": "done",
+                "message": "已完成本地秒回响应",
+                "timestamp": self._timestamp()
+            }
+            return
+
+        # 3. 尝试调用大模型 API (优先使用 DeepSeek，其次是 OpenAI/Anthropic 兼容 fallback)
+        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        if api_key:
+            try:
+                # 1. 优先使用 DeepSeek 官方通道
+                if os.environ.get("DEEPSEEK_API_KEY"):
+                    import openai
+                    from openai import AsyncOpenAI
+                    
+                    client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+                    
+                    response = await client.chat.completions.create(
+                        model="deepseek-chat",
+                        messages=[
+                            {"role": "system", "content": "You are UniEmail Agent, a helpful assistant specialized in scraping university faculty emails."},
+                            {"role": "user", "content": message}
+                        ],
+                        stream=True
+                    )
+                    
+                    async for chunk in response:
+                        content = chunk.choices[0].delta.content or ""
+                        if content:
+                            yield {
+                                "type": "log",
+                                "message": content,
+                                "timestamp": self._timestamp()
+                            }
+                    yield {
+                        "type": "done",
+                        "message": "DeepSeek API 响应完毕",
+                        "timestamp": self._timestamp()
+                    }
+                    return
+                # 2. 回退使用 OpenAI (支持中转)
+                elif os.environ.get("OPENAI_API_KEY"):
+                    import openai
+                    from openai import AsyncOpenAI
+                    
+                    # 自动读取环境变量中的 OPENAI_BASE_URL (如配置了中转或 DeepSeek 中转)
+                    base_url = os.environ.get("OPENAI_BASE_URL") or None
+                    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+                    
+                    # 如果 base_url 含有 deepseek，使用 deepseek-chat，否则使用 gpt-4o-mini
+                    model = os.environ.get("OPENAI_API_MODEL") or ("deepseek-chat" if base_url and "deepseek" in base_url else "gpt-4o-mini")
+                    
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": "You are UniEmail Agent, a helpful assistant specialized in scraping university faculty emails."},
+                            {"role": "user", "content": message}
+                        ],
+                        stream=True
+                    )
+                    
+                    async for chunk in response:
+                        content = chunk.choices[0].delta.content or ""
+                        if content:
+                            yield {
+                                "type": "log",
+                                "message": content,
+                                "timestamp": self._timestamp()
+                            }
+                    yield {
+                        "type": "done",
+                        "message": "OpenAI/DeepSeek-API 响应完毕",
+                        "timestamp": self._timestamp()
+                    }
+                    return
+                # 3. 回退使用 Anthropic
+                elif os.environ.get("ANTHROPIC_API_KEY"):
+                    # 使用 httpx 直接调用 Anthropic API 保证轻量无依赖
+                    import httpx
+                    headers = {
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    }
+                    data = {
+                        "model": os.environ.get("ANTHROPIC_API_MODEL") or "claude-3-5-sonnet-latest",
+                        "messages": [{"role": "user", "content": message}],
+                        "max_tokens": 1024,
+                        "stream": True
+                    }
+                    # 自动读取环境变量中的 ANTHROPIC_BASE_URL (如配置了中转)
+                    base_url = os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+                    url = f"{base_url.rstrip('/')}/v1/messages"
+                    
+                    # 异步 HTTP 流式调用
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        async with client.stream("POST", url, headers=headers, json=data) as r:
+                            if r.status_code == 200:
+                                async for line in r.aiter_lines():
+                                    line = line.strip()
+                                    if line.startswith("data:"):
+                                        line_data = line[5:].strip()
+                                        if line_data == "[DONE]":
+                                            break
+                                        try:
+                                            evt = json.loads(line_data)
+                                            if evt.get("type") == "content_block_delta":
+                                                delta_text = evt.get("delta", {}).get("text", "")
+                                                if delta_text:
+                                                    yield {
+                                                        "type": "log",
+                                                        "message": delta_text,
+                                                        "timestamp": self._timestamp()
+                                                    }
+                                        except Exception:
+                                            pass
+                                yield {
+                                    "type": "done",
+                                    "message": "Anthropic API 响应完毕",
+                                    "timestamp": self._timestamp()
+                                }
+                                return
+                            else:
+                                logger.warning(f"Anthropic API error: {r.status_code}")
+            except Exception as e:
+                logger.error(f"直接调用大模型 API 异常: {e}")
+                # 异常后自动向下执行进入友好提示
+
+        # 4. 无 Key 时的默认优雅反馈
+        yield {
+            "type": "log",
+            "message": "您好！检测到您发送的是日常闲聊/通用问答。由于您当前尚未在环境变量中配置 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`，系统目前仅对**高校教师邮箱爬取任务**自动启用全套 Claude Code CLI 流程。\n\n*   **若要直接爬取**：请使用类似于 **“帮我抓取南京大学计算机学院教师邮箱”** 的指令，系统将立即为您拉起自动化浏览器抓取进程。\n*   **若要启用闲聊/通用问答**：建议在运行环境（或 `.env` 文件）中配置 `DEEPSEEK_API_KEY` 环境变量，系统即可自动通过高速轻量的 DeepSeek `deepseek-chat` 大模型 API 实时响应您的普通日常问答，实现秒回体验！",
+            "timestamp": self._timestamp()
+        }
+        yield {
+            "type": "done",
+            "message": "已完成本地友好提示响应",
+            "timestamp": self._timestamp()
+        }
