@@ -155,8 +155,6 @@ export function useAgentChat({
 
       appendMessage(taskId, userMsg);
       appendMessage(taskId, placeholderMsg);
-      setComposerState(taskId, "connecting");
-      addRunningTask(taskId);
 
       // 确保当前视图切换到该任务
       switchToTask(taskId);
@@ -164,6 +162,10 @@ export function useAgentChat({
       try {
         const res = await api.createChat(content, taskId);
         const { task_id } = res;
+
+        // 任务已在后端创建，安全地建立 WebSocket 连接（修复竞态条件）
+        setComposerState(taskId, "connecting");
+        addRunningTask(taskId);
 
         // 更新 placeholder
         const confirmMsg: Message = {
@@ -234,7 +236,8 @@ export function useAgentChat({
     setComposerState(activeTaskId, "connecting");
     addRunningTask(activeTaskId);
 
-    api.createChat(lastUserMsg.content, activeTaskId).then(({ task_id }) => {
+    api.createChat(lastUserMsg.content, activeTaskId).then((res) => {
+      const { task_id } = res as { task_id: string };
       const currentState = useChatStore.getState().composerStateMap[activeTaskId];
       if (currentState === "connecting") {
         setComposerState(activeTaskId, "streaming");
@@ -351,7 +354,7 @@ export function useAgentChat({
         return;
       }
       try {
-        const data = await api.searchTasks(query);
+        const data = await api.searchTasks(query) as { tasks?: any[] };
         const results = (data.tasks || []).map(
           (t) => ({ ...t, status: t.status || "completed" } as Task)
         );

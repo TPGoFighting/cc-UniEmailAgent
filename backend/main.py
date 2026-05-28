@@ -4,29 +4,42 @@ import os
 import re
 import uuid
 import json
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from agent.claude_agent import ClaudeAgent
 from agent.exporter import get_task_dir, cleanup_task_dir, _BASE_OUTPUT_DIR
 from agent.history import history
+from agent.universities import (
+    build_university_response,
+    get_university_records,
+    parse_table_file,
+    resolve_table_path,
+)
+from agent.mailer import (
+    build_preview,
+    create_send_job,
+    detect_smtp_provider,
+    export_send_job,
+    get_send_job,
+    verify_smtp_config,
+)
 
-# 日志配置
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 全局 Agent 实例
 agent = ClaudeAgent()
 
-# 正在执行 Agent 的任务 ID 集合（防止同一任务重复执行）
-_running_agent_tasks: set[str] = set()
+# 正在执行 Agent 的任务追踪（task_id -> asyncio.Task），防止重复执行
+_running_agent_tasks: dict[str, asyncio.Task] = {}
 
 
 @asynccontextmanager
@@ -38,7 +51,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="UniEmail Agent", version="0.2.0", lifespan=lifespan)
 
-# CORS — 允许前端跨域访问，从环境变量读取（逗号分隔）
 cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -47,9 +59,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# —————————————————————— 数据模型 ——————————————————————
 
 
 class ChatRequest(BaseModel):
@@ -65,7 +74,35 @@ class RenameRequest(BaseModel):
     title: str
 
 
-# —————————————————————— 路由 ——————————————————————
+class SmtpDetectRequest(BaseModel):
+    email: str = ""
+
+
+class SmtpVerifyRequest(BaseModel):
+    user: str
+    password: str
+    host: str | None = None
+    port: int | None = None
+    secure: bool | None = None
+    fromName: str | None = None
+
+
+class MailPreviewRequest(BaseModel):
+    rows: list[dict]
+    subjectTemplate: str
+    bodyTemplate: str
+    limit: int = 10
+
+
+class MailSendRequest(BaseModel):
+    rows: list[dict]
+    subjectTemplate: str
+    bodyTemplate: str
+    smtpSessionId: str
+    settings: dict = {}
+    previewConfirmed: bool = False
+    confirmed: bool = False
+    highVolumeConfirmed: bool = False
 
 
 @app.get("/api/health")
@@ -75,14 +112,12 @@ async def health():
 
 @app.get("/api/history")
 async def get_history():
-    """获取所有历史任务列表（不含消息内容）。"""
     tasks_list = history.get_all()
     return {"tasks": tasks_list}
 
 
 @app.get("/api/history/search")
 async def search_history(q: str = ""):
-    """搜索历史任务。"""
     results = history.search(q)
     return {"tasks": results}
 
@@ -90,19 +125,16 @@ async def search_history(q: str = ""):
 @app.get("/api/history/{task_id}")
 async def get_history_task(
     task_id: str,
-    limit: int = Query(default=0, ge=0, description="返回消息数量上限，0=全部"),
-    offset: int = Query(default=0, ge=0, description="跳过的消息数量"),
+    limit: int = Query(default=0, ge=0, description="return message count limit, 0=all"),
+    offset: int = Query(default=0, ge=0, description="messages to skip"),
 ):
-    """获取指定任务的完整记录（含消息），支持分页。"""
     task = history.get(task_id)
     if task is None:
-        return {"error": "任务不存在"}
+        return {"error": "task not found"}
 
-    # 规范化消息：确保每条消息都有 role 字段
     messages = task.get("messages", [])
     total = len(messages)
 
-    # 分页
     if offset > 0 or limit > 0:
         page = messages[offset:offset + limit] if limit > 0 else messages[offset:]
     else:
@@ -125,7 +157,7 @@ async def get_history_task(
 async def rename_task(task_id: str, req: RenameRequest):
     task = history.rename_task(task_id, req.title)
     if task is None:
-        return {"error": "任务不存在"}
+        return {"error": "task not found"}
     return {"ok": True, "task": task}
 
 
@@ -133,13 +165,12 @@ async def rename_task(task_id: str, req: RenameRequest):
 async def pin_task(task_id: str):
     task = history.toggle_pin(task_id)
     if task is None:
-        return {"error": "任务不存在"}
+        return {"error": "task not found"}
     return {"ok": True, "pinned": task.get("pinned", False)}
 
 
 @app.delete("/api/history/{task_id}")
 async def delete_task(task_id: str):
-    """删除任务，同时清理其输出文件。"""
     cleanup_task_dir(task_id)
     ok = history.delete_task(task_id)
     return {"ok": ok}
@@ -147,12 +178,8 @@ async def delete_task(task_id: str):
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def create_task(req: ChatRequest):
-    """接收用户消息，创建或复用任务并返回 task_id。
-
-    任务消息持久化到 history，后端重启后可恢复。
-    """
     task_id = req.task_id or str(uuid.uuid4())
-    user_content = req.message or "新建任务"
+    user_content = req.message or "new task"
 
     existing = history.get(task_id)
     if existing is None:
@@ -160,14 +187,13 @@ async def create_task(req: ChatRequest):
     else:
         history.update_status(task_id, "running")
 
-    # 总是将用户消息追加到任务（无论新建还是追问）
     history.add_message(task_id, {
         "id": f"user-{task_id[:8]}-{len(existing.get('messages', [])) if existing else 0}",
         "role": "user",
         "content": user_content,
     })
 
-    logger.info(f"任务 {task_id}: {req.message}")
+    logger.info(f"task {task_id}: {req.message}")
     return ChatResponse(task_id=task_id)
 
 
@@ -182,7 +208,6 @@ MIME_MAP = {
 
 
 def _safe_resolve(base: Path, *parts: str) -> Path | None:
-    """安全解析路径，防止路径遍历。"""
     p = base.resolve()
     for part in parts:
         p = (p / part).resolve()
@@ -193,14 +218,13 @@ def _safe_resolve(base: Path, *parts: str) -> Path | None:
 
 @app.get("/api/download/{task_id}/{filename:path}")
 async def download_file_tasked(task_id: str, filename: str):
-    """下载任务专属目录中的文件。"""
     if ".." in filename or ".." in task_id:
-        return {"error": "无效的文件名"}
+        return {"error": "invalid filename"}
     safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
     base = _BASE_OUTPUT_DIR.resolve()
     filepath = _safe_resolve(base, safe_tid, filename)
     if filepath is None or not filepath.exists():
-        return {"error": "文件不存在"}
+        return {"error": "file not found"}
     ext = filepath.suffix.lower()
     return FileResponse(
         path=str(filepath),
@@ -211,32 +235,35 @@ async def download_file_tasked(task_id: str, filename: str):
 
 @app.get("/api/download/{filename}")
 async def download_file(filename: str):
-    """下载根 outputs/ 目录中的文件（兼容旧版无 task_id 的链接）。"""
     if ".." in filename or "/" in filename or "\\" in filename:
-        return {"error": "无效的文件名"}
+        return {"error": "invalid filename"}
     base = _BASE_OUTPUT_DIR.resolve()
     filepath = _safe_resolve(base, filename)
-    if filepath is None or not filepath.exists():
-        return {"error": "文件不存在"}
-    ext = filepath.suffix.lower()
-    return FileResponse(
-        path=str(filepath),
-        filename=filename,
-        media_type=MIME_MAP.get(ext, "application/octet-stream"),
-    )
-
-
-# —————————————————————— Skills 管理 ——————————————————————
+    if filepath and filepath.exists():
+        ext = filepath.suffix.lower()
+        return FileResponse(
+            path=str(filepath),
+            filename=filename,
+            media_type=MIME_MAP.get(ext, "application/octet-stream"),
+        )
+    # 根目录未找到，尝试在所有任务子目录中查找
+    for child in base.iterdir():
+        if child.is_dir():
+            candidate = _safe_resolve(base, child.name, filename)
+            if candidate and candidate.exists():
+                ext = candidate.suffix.lower()
+                return FileResponse(
+                    path=str(candidate),
+                    filename=filename,
+                    media_type=MIME_MAP.get(ext, "application/octet-stream"),
+                )
+    return {"error": "file not found"}
 
 
 SKILLS_DIR = Path(__file__).parent / "skills"
 
 
 def _generate_skills(task_id: str, task_data: dict) -> None:
-    """从已完成任务中提取可复用知识，保存到全局 skills/ 目录。
-
-    提取内容：发现的大学 URL、有效导航关键词、院系列表等。
-    """
     SKILLS_DIR.mkdir(exist_ok=True)
 
     messages = task_data.get("messages", [])
@@ -246,7 +273,6 @@ def _generate_skills(task_id: str, task_data: dict) -> None:
             user_msg = m.get("content", "")
             break
 
-    # 提取大学名称
     uni_name = "unknown"
     for m in messages:
         content = m.get("content", "")
@@ -257,7 +283,6 @@ def _generate_skills(task_id: str, task_data: dict) -> None:
                 uni_name = match.group(1)
                 break
 
-    # 收集下载文件信息
     files = []
     for m in messages:
         if m.get("role") == "download" and m.get("filename"):
@@ -278,14 +303,13 @@ def _generate_skills(task_id: str, task_data: dict) -> None:
     try:
         with open(skill_file, "w", encoding="utf-8") as f:
             json.dump(skill, f, ensure_ascii=False, indent=2)
-        logger.info(f"Skill 已生成: {skill_file.name}")
+        logger.info(f"Skill generated: {skill_file.name}")
     except OSError as e:
-        logger.error(f"Skill 保存失败: {e}")
+        logger.error(f"Skill save failed: {e}")
 
 
 @app.get("/api/skills")
 async def list_skills():
-    """列出所有已生成的 skills。"""
     SKILLS_DIR.mkdir(exist_ok=True)
     skills = []
     for f in sorted(SKILLS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
@@ -297,29 +321,111 @@ async def list_skills():
     return {"skills": skills}
 
 
-# —————————————————————— WebSocket ——————————————————————
+@app.get("/api/universities")
+async def list_universities(
+    province: str = "",
+    tier: str = "",
+    q: str = "",
+):
+    return build_university_response(province=province, tier=tier, q=q)
+
+
+@app.get("/api/universities/{name}/records")
+async def university_records(name: str):
+    return get_university_records(name)
+
+
+@app.get("/api/universities/{name}/table")
+async def university_table(
+    name: str,
+    task_id: str = "",
+    file: str = "",
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    q: str = "",
+    department: str = "",
+    valid_only: bool = False,
+):
+    path = resolve_table_path(task_id, file)
+    if path is None or name not in path.name:
+        raise HTTPException(status_code=404, detail="table file not found")
+    try:
+        return parse_table_file(path, limit=limit, offset=offset, q=q, department=department, valid_only=valid_only)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"table parse failed: {type(exc).__name__}") from exc
+
+
+@app.post("/api/smtp/detect")
+async def smtp_detect(req: SmtpDetectRequest):
+    return detect_smtp_provider(req.email)
+
+
+@app.post("/api/smtp/verify")
+async def smtp_verify(req: SmtpVerifyRequest):
+    try:
+        return verify_smtp_config(req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/mail/preview")
+async def mail_preview(req: MailPreviewRequest):
+    try:
+        return build_preview(req.rows, req.subjectTemplate, req.bodyTemplate, req.limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/mail/send")
+async def mail_send(req: MailSendRequest):
+    try:
+        return create_send_job(
+            rows=req.rows,
+            subject_template=req.subjectTemplate,
+            body_template=req.bodyTemplate,
+            smtp_session_id=req.smtpSessionId,
+            preview_confirmed=req.previewConfirmed,
+            confirmed=req.confirmed,
+            high_volume_confirmed=req.highVolumeConfirmed,
+            settings=req.settings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/mail/jobs/{job_id}")
+async def mail_job(job_id: str):
+    job = get_send_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
+@app.get("/api/mail/jobs/{job_id}/export")
+async def mail_job_export(job_id: str, format: str = "csv"):
+    try:
+        filename, payload, media_type = export_send_job(job_id, "xlsx" if format == "xlsx" else "csv")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _build_context_prompt(task_data: dict, latest_user_msg: str) -> tuple[str, str, bool]:
-    """为追问构建上下文 prompt。返回 (prompt, original_first_msg, is_followup)。
-
-    首次对话：直接返回用户消息，不注入额外上下文。
-    追问：注入历史摘要 + 产物清单，让 Agent 理解当前任务状态。
-    """
     messages = task_data.get("messages", [])
     user_msgs = [m for m in messages if m.get("role") == "user"]
 
-    # 只有 1 条用户消息 → 首次对话，不注入上下文
     if len(user_msgs) <= 1:
         return latest_user_msg, latest_user_msg, False
 
-    # ── 构建追问上下文 ──
     lines = [
         "## 任务上下文（同一任务的后续追问）\n",
         "以下是本任务已完成工作的摘要，请基于此上下文处理当前请求：\n",
     ]
 
-    # 历史用户需求
     prev_requests = [m.get("content", "") for m in user_msgs[:-1]]
     if prev_requests:
         lines.append("### 之前的需求")
@@ -327,7 +433,6 @@ def _build_context_prompt(task_data: dict, latest_user_msg: str) -> tuple[str, s
             lines.append(f"{i}. {req[:200]}")
         lines.append("")
 
-    # 已生成的下载文件
     downloads = [m for m in messages if m.get("role") == "download"]
     files = [d.get("filename", "") for d in downloads if d.get("filename")]
     if files:
@@ -339,11 +444,9 @@ def _build_context_prompt(task_data: dict, latest_user_msg: str) -> tuple[str, s
                 lines.append(f"- {f}")
         lines.append("")
 
-    # Agent 的最后回复（截取关键信息）
     agent_msgs = [m for m in messages if m.get("role") == "agent" and m.get("content")]
     if agent_msgs:
         last = agent_msgs[-1].get("content", "")
-        # 取前 800 字符，优先截断在换行处
         if len(last) > 800:
             last = last[:800].rsplit("\n", 1)[0]
         lines.append("### 上次任务的回复摘要")
@@ -354,8 +457,8 @@ def _build_context_prompt(task_data: dict, latest_user_msg: str) -> tuple[str, s
     lines.append("请基于以上上下文处理当前请求。你可以引用或操作之前生成的文件。")
     lines.append("")
     lines.append(
-        "### 📁 文件分享（必须严格遵守）\n"
-        "任务完成时，用 [FILES]...[/FILES] 标记块列出要提供给用户下载的文件。\n"
+        "### 文件分享（必须严格遵守）\n"
+        "任务完成时，用 [FILES][/FILES] 标记块列出要提供给用户下载的文件。\n"
         "只有在这个块中列出的文件才会在前端显示下载链接。\n"
         "格式：每行 `文件名 | 简短描述`，文件名只需写文件名（不含路径）。\n"
         "示例：\n"
@@ -371,17 +474,10 @@ def _build_context_prompt(task_data: dict, latest_user_msg: str) -> tuple[str, s
 
 
 def _detect_file_request(message: str) -> list[dict]:
-    """检测用户消息中是否包含请求已有文件的操作。
-
-    匹配 Windows 绝对路径（盘符:\\...\\文件名.扩展名），验证文件在 outputs/ 下且存在。
-    返回 [{"path": Path, "task_id": str, "filename": str, "url": str}, ...]
-    """
     base = _BASE_OUTPUT_DIR.resolve()
     results: list[dict] = []
 
-    # 匹配双引号包裹的 Windows 绝对路径
     quoted = re.findall(r'["""]([A-Za-z]:\\[^"""]+?\.[a-zA-Z0-9]+)[""""]', message)
-    # 匹配未被引号包裹的 Windows 绝对路径
     bare = re.findall(r'(?<![a-zA-Z])([A-Za-z]:\\[^\s,，。；;]+?\.[a-zA-Z0-9]+)', message)
 
     seen = set()
@@ -398,14 +494,12 @@ def _detect_file_request(message: str) -> list[dict]:
         if not p.is_file():
             continue
 
-        # 安全检查：必须在 _BASE_OUTPUT_DIR 下
         try:
             rel = p.relative_to(base)
         except ValueError:
             continue
 
         parts = rel.parts
-        # 提取 task_id（outputs/ 下的第一级子目录）和文件路径
         if len(parts) == 1:
             task_id = ""
             filename = parts[0]
@@ -425,22 +519,64 @@ def _detect_file_request(message: str) -> list[dict]:
     return results
 
 
+PROGRESS_MESSAGES = [
+    "正在识别目标高校",
+    "正在访问官网与院系页面",
+    "正在提取教师信息",
+    "正在清洗邮箱数据",
+    "正在生成结果文件",
+]
+
+
+def _final_summary(message: str, downloads: list[dict]) -> str:
+    text = (message or "").strip()
+    if not text:
+        text = f"任务已完成，共生成 {len(downloads)} 个结果文件。" if downloads else "任务已完成。"
+    if len(text) > 600:
+        text = text[:600].rsplit("\n", 1)[0]
+    return text
+
+
+async def _progress_pump(ws: WebSocket, stop_event: asyncio.Event) -> None:
+    idx = 0
+    while not stop_event.is_set():
+        try:
+            await ws.send_text(json.dumps({
+                "type": "progress",
+                "message": PROGRESS_MESSAGES[min(idx, len(PROGRESS_MESSAGES) - 1)],
+                "step": min(idx + 1, len(PROGRESS_MESSAGES)),
+                "total": len(PROGRESS_MESSAGES),
+                "timestamp": __import__("datetime").datetime.now().strftime("%H:%M:%S"),
+            }, ensure_ascii=False))
+        except Exception:
+            return
+        idx += 1
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=8.0 if idx < len(PROGRESS_MESSAGES) else 14.0)
+        except asyncio.TimeoutError:
+            continue
+
+
 @app.websocket("/ws/{task_id}")
 async def agent_logs(ws: WebSocket, task_id: str):
-    """WebSocket 端点：实时推送 Agent 日志，任务结束后生成 skill。"""
     await ws.accept()
-    logger.info(f"WebSocket 连接: {task_id}")
+    logger.info(f"WebSocket connected: {task_id}")
 
-    # 从 history 恢复任务消息（支持后端重启后重连）
     task_data = history.get(task_id)
     if task_data is None:
+        for _ in range(20):
+            await asyncio.sleep(0.1)
+            task_data = history.get(task_id)
+            if task_data is not None:
+                logger.info(f"task {task_id} created after wait")
+                break
+    if task_data is None:
         await ws.send_text(
-            json.dumps({"type": "error", "message": "任务不存在，请重新发送"}, ensure_ascii=False)
+            json.dumps({"type": "error", "message": "task not found, please resend"}, ensure_ascii=False)
         )
         await ws.close()
         return
 
-    # 从消息历史中取最新的用户消息
     user_message = ""
     for m in reversed(task_data.get("messages", [])):
         if m.get("role") == "user":
@@ -448,42 +584,41 @@ async def agent_logs(ws: WebSocket, task_id: str):
             break
 
     if not user_message:
-        user_message = task_data.get("title", "未找到任务")
+        user_message = task_data.get("title", "no task found")
 
-    # 构建上下文（追问时注入历史 + 产物摘要）
     prompt, first_user_msg, is_followup = _build_context_prompt(task_data, user_message)
-
-    # ── 检测文件请求：如果用户消息中包含 outputs/ 下的有效文件路径，直接推送下载 ──
     file_requests = _detect_file_request(user_message)
 
-    # ── 防止重复执行：同一任务已有 Agent 在运行则拒绝 ──
+    # 如果同一任务已有执行中的 handler，取消旧的（防止 Agent 挂起后死锁）
     if task_id in _running_agent_tasks:
-        logger.warning(f"任务 {task_id} 已在执行中，拒绝重复 WebSocket 连接")
-        await ws.send_text(
-            json.dumps({"type": "error", "message": "任务已在执行中"}, ensure_ascii=False)
-        )
-        await ws.close()
-        return
+        old_task = _running_agent_tasks[task_id]
+        if not old_task.done():
+            logger.warning(f"task {task_id} has running handler, cancelling old one")
+            old_task.cancel()
+            try:
+                await asyncio.wait_for(old_task, timeout=3.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+        _running_agent_tasks.pop(task_id, None)
 
-    _running_agent_tasks.add(task_id)
+    current_task = asyncio.current_task()
+    _running_agent_tasks[task_id] = current_task
 
     try:
         msg_seq = 0
 
         if file_requests:
-            # 跳过 Agent 执行，直接推送下载链接
-            logger.info(f"任务 {task_id}: 检测到文件请求，跳过 Agent，共 {len(file_requests)} 个文件")
+            logger.info(f"task {task_id}: file request detected, skipping agent, {len(file_requests)} file(s)")
             from datetime import datetime as _dt
             ts = _dt.now().strftime("%H:%M:%S")
             for fr in file_requests:
                 log = {
                     "type": "download",
-                    "message": f"📎 {fr['filename']}",
+                    "message": f"file: {fr['filename']}",
                     "filename": fr["filename"],
                     "url": fr["url"],
                     "timestamp": ts,
                 }
-                await ws.send_text(json.dumps(log, ensure_ascii=False))
                 msg_seq += 1
                 history.add_message(task_id, {
                     "id": f"download-{task_id[:8]}-{ts}-{msg_seq}",
@@ -493,25 +628,23 @@ async def agent_logs(ws: WebSocket, task_id: str):
                     "filename": fr["filename"],
                     "url": fr["url"],
                 })
-            # 推送完成消息
-            done_msg = {"type": "done", "message": "文件已发送", "timestamp": ts}
-            await ws.send_text(json.dumps(done_msg, ensure_ascii=False))
+                await ws.send_text(json.dumps(log, ensure_ascii=False))
+            done_msg = {"type": "done", "message": "files sent", "timestamp": ts}
             history.add_message(task_id, {
                 "id": f"done-{task_id[:8]}-{ts}",
                 "role": "agent",
-                "content": "文件已发送",
+                "content": "files sent",
                 "timestamp": ts,
             })
+            await ws.send_text(json.dumps(done_msg, ensure_ascii=False))
             history.update_status(task_id, "completed")
             await ws.close()
             return
 
-        # 仅在首次对话时清理输出目录，追问保留之前生成的文件
         if not is_followup:
             cleanup_task_dir(task_id)
-            get_task_dir(task_id)  # 预创建目录，Agent 无需再 mkdir
+            get_task_dir(task_id)
 
-        # 确保 user 消息已持久化
         existing_user_msg = None
         for m in task_data.get("messages", []):
             if m.get("role") == "user":
@@ -524,11 +657,25 @@ async def agent_logs(ws: WebSocket, task_id: str):
                 "content": user_message,
             })
 
+        progress_stop = asyncio.Event()
+        progress_task = asyncio.create_task(_progress_pump(ws, progress_stop))
+        last_agent_line = ""
+        downloads: list[dict] = []
+
         async for log in agent.execute(prompt, task_id, is_continuation=is_followup):
-            await ws.send_text(json.dumps(log, ensure_ascii=False))
             msg_seq += 1
             msg_type = log.get("type", "agent")
+            if msg_type == "log":
+                last_agent_line = log.get("message", "") or last_agent_line
+                logger.info("task %s agent: %s", task_id, (last_agent_line or "")[:500])
+                continue
+            if msg_type == "download":
+                downloads.append(log)
+            if msg_type == "done":
+                last_agent_line = log.get("message", "") or last_agent_line
+                continue
             role_map = {"log": "log", "download": "download", "error": "agent", "done": "agent"}
+            # 先写历史再发 WS，防止刷新时消息丢失
             history.add_message(task_id, {
                 "id": f"{msg_type}-{task_id[:8]}-{log.get('timestamp', '')}-{msg_seq}",
                 "role": role_map.get(msg_type, "log"),
@@ -537,11 +684,27 @@ async def agent_logs(ws: WebSocket, task_id: str):
                 "filename": log.get("filename", ""),
                 "url": log.get("url", ""),
             })
+            await ws.send_text(json.dumps(log, ensure_ascii=False))
 
-        # 任务成功完成
+        progress_stop.set()
+        try:
+            await progress_task
+        except Exception:
+            pass
+
+        from datetime import datetime as _dt
+        ts = _dt.now().strftime("%H:%M:%S")
+        summary = _final_summary(last_agent_line, downloads)
+        history.add_message(task_id, {
+            "id": f"done-{task_id[:8]}-{ts}",
+            "role": "agent",
+            "content": summary,
+            "timestamp": ts,
+        })
+        await ws.send_text(json.dumps({"type": "done", "message": summary, "timestamp": ts}, ensure_ascii=False))
+
         history.update_status(task_id, "completed")
 
-        # 生成 skill 供其他任务参考
         final_task = history.get(task_id)
         if final_task:
             _generate_skills(task_id, final_task)
@@ -549,18 +712,26 @@ async def agent_logs(ws: WebSocket, task_id: str):
         await ws.close()
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket 断开: {task_id}")
+        logger.info(f"WebSocket disconnected: {task_id}")
+        history.update_status(task_id, "failed")
+    except asyncio.CancelledError:
+        logger.info(f"task {task_id} cancelled by new connection, exiting silently")
         history.update_status(task_id, "failed")
     except Exception as e:
         err_detail = f"{type(e).__name__}: {str(e)[:300]}"
-        logger.error(f"WebSocket 错误 {task_id}: {err_detail}")
+        logger.error(f"WebSocket error {task_id}: {err_detail}")
         history.update_status(task_id, "failed")
+        err_msg = {"type": "error", "message": f"execution error: {err_detail}"}
+        history.add_message(task_id, {
+            "id": f"error-{task_id[:8]}-{__import__('datetime').datetime.now().strftime('%H%M%S')}",
+            "role": "agent",
+            "content": err_msg["message"],
+        })
         try:
-            await ws.send_text(
-                json.dumps({"type": "error", "message": f"执行出错: {err_detail}"}, ensure_ascii=False)
-            )
+            await ws.send_text(json.dumps(err_msg, ensure_ascii=False))
         except Exception:
             pass
         await ws.close()
     finally:
-        _running_agent_tasks.discard(task_id)
+        if _running_agent_tasks.get(task_id) is current_task:
+            _running_agent_tasks.pop(task_id, None)

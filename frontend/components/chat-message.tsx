@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot, Terminal, Download } from "lucide-react";
+import { User, Bot, Terminal, Download, Loader2 } from "lucide-react";
 import type { Message } from "@/lib/types";
 import { MessageActions } from "@/components/message-actions";
 import { TypingIndicator } from "@/components/typing-indicator";
@@ -58,27 +58,26 @@ export function ChatMessage({ message }: ChatMessageProps) {
     );
   }
 
-  if (message.role === "log") {
+  if (message.role === "progress") {
     return (
       <motion.div
         variants={messageVariants}
         initial="initial"
         animate="animate"
-        className="py-1"
+        className="py-2"
       >
-        <div className="flex items-start gap-3">
-          <div className="flex size-5 shrink-0 items-center justify-center rounded bg-muted">
-            <Terminal className="size-2.5 text-muted-foreground" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            {message.timestamp && (
-              <span className="shrink-0 font-mono text-xs text-[#9A9AA5] dark:text-[#6E6E80]">
-                [{message.timestamp}]
-              </span>
-            )}
-            <span className="font-mono text-sm text-muted-foreground">
-              {message.content}
-            </span>
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+          <Loader2 className="size-4 animate-spin text-primary" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-foreground">{message.content}</span>
+              {message.step && message.total ? (
+                <span className="shrink-0 text-xs text-muted-foreground">{message.step}/{message.total}</span>
+              ) : null}
+            </div>
+            {message.timestamp ? (
+              <span className="mt-1 block text-xs text-muted-foreground">{message.timestamp}</span>
+            ) : null}
           </div>
         </div>
       </motion.div>

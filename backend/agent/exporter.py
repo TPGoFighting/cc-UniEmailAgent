@@ -54,11 +54,11 @@ def _build_rows(data: list[dict]) -> list[list]:
     for i, row in enumerate(data, 1):
         rows.append([
             i,
-            row.get("name", ""),
-            row.get("email", ""),
-            row.get("department", ""),
-            row.get("title", ""),
-            row.get("url", ""),
+            row.get("name") or "",
+            row.get("email") or "",
+            row.get("department") or "",
+            row.get("title") or "",
+            row.get("url") or "",
         ])
     return rows
 

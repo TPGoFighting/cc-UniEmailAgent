@@ -436,7 +436,7 @@ class ClaudeAgent:
             "--no-session-persistence",
             "--permission-mode", "bypassPermissions",
             "--max-budget-usd", "20.0",
-            "--model", "deepseek-v4-pro",
+            "--model", "deepseek-v4-flash",
             prompt,
         ]
 
@@ -494,7 +494,7 @@ class ClaudeAgent:
         import re as _re
 
         results: list[tuple[str, str]] = []
-        pattern = r"\[FILES\]\s*\n(.*?)\[/FILES\]"
+        pattern = r"\[FILES\]\s+(.*?)\[/FILES\]"
         for match in _re.finditer(pattern, text, _re.DOTALL | _re.IGNORECASE):
             for line in match.group(1).strip().split("\n"):
                 line = line.strip()
@@ -588,12 +588,13 @@ class ClaudeAgent:
                 continue
             pushed_names.add(csv_name)
 
-            # 直接推送原始 CSV 下载链接（Agent 已生成好的文件）
-            csv_url = (
-                f"/api/download/{task_id}/{csv_name}"
-                if task_id
-                else f"/api/download/{csv_name}"
-            )
+            # 根据文件实际位置生成正确的下载 URL
+            rel = csv_path.relative_to(_BASE_OUTPUT_DIR)
+            if len(rel.parts) == 1:
+                csv_url = f"/api/download/{csv_name}"
+            else:
+                csv_url = f"/api/download/{rel.parts[0]}/{csv_name}"
+
             results.append({
                 "type": "download",
                 "message": f"CSV: {csv_name}",
@@ -606,15 +607,13 @@ class ClaudeAgent:
             xlsx_path = csv_path.with_suffix(".xlsx")
             if xlsx_path.exists() and xlsx_path.stat().st_size > 0:
                 xlsx_name = xlsx_path.name
+                # XLSX URL 与 CSV 使用相同的前缀路径
+                xlsx_url = csv_url.rsplit("/", 1)[0] + "/" + xlsx_name
                 results.append({
                     "type": "download",
                     "message": f"XLSX: {xlsx_name}",
                     "filename": xlsx_name,
-                    "url": (
-                        f"/api/download/{task_id}/{xlsx_name}"
-                        if task_id
-                        else f"/api/download/{xlsx_name}"
-                    ),
+                    "url": xlsx_url,
                     "timestamp": self._timestamp(),
                 })
 

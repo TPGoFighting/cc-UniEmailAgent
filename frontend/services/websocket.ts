@@ -1,22 +1,11 @@
 import type { WSEvent, WSEventHandlers } from "@/lib/types";
 
-/**
- * WebSocket 连接管理器
- * 管理单个任务的 WebSocket 连接生命周期
- */
-export class WebSocketManager {
+class WebSocketManager {
   private ws: WebSocket | null = null;
-  private taskId: string = "";
+  private taskId = "";
   private handlers: WSEventHandlers | null = null;
 
-  /**
-   * 建立 WebSocket 连接
-   */
-  connect(
-    taskId: string,
-    url: string,
-    handlers: WSEventHandlers
-  ): void {
+  connect(taskId: string, url: string, handlers: WSEventHandlers): void {
     this.disconnect();
     this.taskId = taskId;
     this.handlers = handlers;
@@ -24,16 +13,11 @@ export class WebSocketManager {
     const ws = new WebSocket(url);
     this.ws = ws;
 
-    ws.onopen = () => {
-      // 连接已建立
-    };
-
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data) as WSEvent;
-        this.handleEvent(data);
+        this.handleEvent(JSON.parse(event.data) as WSEvent);
       } catch {
-        // 忽略无法解析的消息
+        // Ignore malformed websocket payloads.
       }
     };
 
@@ -44,57 +28,48 @@ export class WebSocketManager {
       }
     };
 
-    ws.onerror = () => {
-      ws.close();
-    };
+    ws.onerror = () => ws.close();
   }
 
-  /**
-   * 断开连接
-   */
   disconnect(): void {
     if (this.ws) {
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }
     this.handlers = null;
   }
 
-  /**
-   * 检查是否已连接
-   */
   get isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  /**
-   * 获取当前任务 ID
-   */
   get currentTaskId(): string {
     return this.taskId;
   }
 
   private handleEvent(data: WSEvent): void {
     if (!this.handlers) return;
-
     switch (data.type) {
-      case "log":
-        this.handlers.onLog(data.message, data.timestamp);
+      case "progress":
+        this.handlers.onProgress(data.message, data.step, data.total, data.timestamp);
         break;
       case "download":
-        this.handlers.onDownload(
-          data.message,
-          data.filename,
-          data.url,
-          data.timestamp
-        );
+        this.handlers.onDownload(data.message, data.filename, data.url, data.timestamp);
         break;
       case "done":
-        this.handlers.onDone();
+        this.handlers.onDone(data.message, data.timestamp);
         break;
       case "error":
         this.handlers.onError(data.message);
         break;
     }
   }
+}
+
+let _instance: WebSocketManager | null = null;
+
+export function getWsManager(): WebSocketManager {
+  if (!_instance) _instance = new WebSocketManager();
+  return _instance;
 }

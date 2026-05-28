@@ -12,7 +12,7 @@ export function useHistory() {
   const query = useQuery({
     queryKey: ["history"],
     queryFn: async () => {
-      const data = await api.getHistory();
+      const data = await api.getHistory() as { tasks?: any[] };
       return (data.tasks || []).map(
         (t) =>
           ({

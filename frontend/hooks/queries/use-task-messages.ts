@@ -32,7 +32,7 @@ export function useTaskMessages(taskId: string | null) {
     queryKey: ["messages", taskId],
     queryFn: async () => {
       if (!taskId) return [];
-      const data = await api.getTaskMessages(taskId);
+      const data = await api.getTaskMessages(taskId) as { messages?: unknown[]; task?: { messages?: unknown[] } };
       const rawMessages =
         data.messages || (data.task as { messages?: unknown[] })?.messages || [];
       return normalizeMessages(rawMessages);

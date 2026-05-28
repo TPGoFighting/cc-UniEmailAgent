@@ -1,6 +1,6 @@
 "use client";
 
-import { PanelLeft } from "lucide-react";
+import { PanelLeft, BookOpenText, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatInput } from "@/components/chat-input";
@@ -23,22 +23,14 @@ export function ChatArea() {
     return aid ? s.tasks.find((t) => t.id === aid) || null : null;
   });
   const tasks = useTaskStore((s) => s.tasks);
-  const composerState = activeTaskId ? (composerStateMap[activeTaskId] || "idle") : "idle";
+  const composerState = activeTaskId ? composerStateMap[activeTaskId] || "idle" : "idle";
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
+  const setUniversityOpen = useUIStore((s) => s.setUniversityOpen);
+  const setMailOpen = useUIStore((s) => s.setMailOpen);
 
-  const {
-    send,
-    stop,
-    regenerate,
-    selectTask,
-  } = useAgentChat();
-
+  const { send, stop, regenerate, selectTask } = useAgentChat();
   const bottomRef = useAutoScroll(messages);
-
-  const displayMessages =
-    messages.length > 0 ? messages : [welcomeMessage];
-
-  // 是否显示空状态
+  const displayMessages = messages.length > 0 ? messages : [welcomeMessage];
   const showEmptyState =
     displayMessages.length === 1 &&
     displayMessages[0].id === "welcome" &&
@@ -46,63 +38,44 @@ export function ChatArea() {
     composerState === "idle";
 
   return (
-    <main className="flex h-full flex-1 flex-col min-w-0 overflow-hidden bg-white dark:bg-[#202123]">
-      {/* 顶部栏 */}
+    <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <header className="flex items-center gap-3 border-b px-5 py-3" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="lg:hidden"
-          onClick={() => setSidebarOpen(true)}
-          aria-label="打开侧边栏"
-        >
+        <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="打开侧边栏">
           <PanelLeft className="size-4" />
         </Button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-medium text-foreground">
             {activeTask ? activeTask.title : "新建任务"}
           </h2>
-          {activeTask && (
-            <p className="text-xs text-[#9A9AA5] dark:text-[#6E6E80]">
-              {activeTask.date}
-            </p>
-          )}
+          {activeTask && <p className="text-xs text-muted-foreground">{activeTask.date}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setUniversityOpen(true)}>
+            <BookOpenText className="size-4" />
+            高校库
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setMailOpen(true)}>
+            <Mail className="size-4" />
+            邮件发送
+          </Button>
         </div>
       </header>
 
-      {/* 空状态 / 消息列表 */}
       {showEmptyState ? (
-        <EmptyState
-          recentTasks={tasks.slice(0, 3)}
-          onSelectTask={selectTask}
-          onPromptClick={(prompt) => send(prompt)}
-        />
+        <EmptyState recentTasks={tasks.slice(0, 3)} onSelectTask={selectTask} onPromptClick={(prompt) => send(prompt)} />
       ) : (
         <ScrollArea className="flex-1 min-h-0">
           <div className="mx-auto max-w-3xl px-6 py-6 md:px-8 md:py-8">
-            {displayMessages.map((msg) => (
-              <ChatMessage
-                key={msg.id}
-                message={msg}
-              />
-            ))}
+            {displayMessages.map((msg) => <ChatMessage key={msg.id} message={msg} />)}
             {(composerState === "connecting" || composerState === "streaming") && (
-              <div className="ml-11">
-                <TypingIndicator />
-              </div>
+              <div className="ml-11"><TypingIndicator /></div>
             )}
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
       )}
 
-      {/* AI Composer */}
-      <ChatInput
-        onSend={send}
-        onStop={stop}
-        onRegenerate={regenerate}
-        composerState={composerState}
-      />
+      <ChatInput onSend={send} onStop={stop} onRegenerate={regenerate} composerState={composerState} />
     </main>
   );
 }
