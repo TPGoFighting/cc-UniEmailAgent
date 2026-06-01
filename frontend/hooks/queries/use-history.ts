@@ -23,6 +23,7 @@ export function useHistory() {
       );
     },
     staleTime: 30_000,
+    refetchInterval: 10_000,
     retry: 1,
   });
 

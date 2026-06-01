@@ -57,6 +57,15 @@ class WebSocketManager {
       case "download":
         this.handlers.onDownload(data.message, data.filename, data.url, data.timestamp);
         break;
+      case "file":
+        this.handlers.onFile(data.message, data.filename, data.filepath, data.timestamp);
+        break;
+      case "log":
+        this.handlers.onLog(data.message, data.timestamp);
+        break;
+      case "text":
+        this.handlers.onText(data.message, data.timestamp);
+        break;
       case "done":
         this.handlers.onDone(data.message, data.timestamp);
         break;

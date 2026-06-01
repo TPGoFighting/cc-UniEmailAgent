@@ -15,10 +15,14 @@ function normalizeMessages(rawMessages: unknown[]): Message[] {
       mid = `${mid}-${idx}`;
     }
     seenIds.add(mid);
+    // 历史中 role 为 "agent" 但后端发送的 type "text" 历史存储为 role "text"
+    // 需要映射为前端显示需要的角色
+    const rawRole = (m.role as string) || "log";
+    const role = rawRole === "text" ? "agent" : rawRole;
     return {
       ...m,
       id: mid,
-      role: m.role || "log",
+      role,
       content: m.content || "",
     } as Message;
   });

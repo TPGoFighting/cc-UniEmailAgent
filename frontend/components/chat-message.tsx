@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot, Terminal, Download, Loader2 } from "lucide-react";
+import { User, Bot, Terminal, Download, Loader2, Bug, FileText } from "lucide-react";
 import type { Message } from "@/lib/types";
 import { MessageActions } from "@/components/message-actions";
 import { TypingIndicator } from "@/components/typing-indicator";
@@ -128,6 +128,86 @@ export function ChatMessage({ message }: ChatMessageProps) {
     );
   }
 
+  if (message.role === "text" || message.role === "agent") {
+    return (
+      <motion.div
+        variants={messageVariants}
+        initial="initial"
+        animate="animate"
+        className="group py-4"
+      >
+        <div className="flex items-start gap-4">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full overflow-hidden bg-muted">
+            <img src="/avatar.png" alt="Agent" className="size-full object-cover dark:invert" />
+          </div>
+          <div className="min-w-0 flex-1 rounded-[24px] rounded-tl-md bg-muted/50 px-5 py-3.5">
+            <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code: function Code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code">) {
+                    const match = /language-(\w+)/.exec(className || "");
+                    const codeStr = String(children).replace(/\n$/, "");
+                    if (match) {
+                      return <ShikiHighlight code={codeStr} language={match[1]} />;
+                    }
+                    return (
+                      <code className="rounded-md bg-muted px-1 py-0.5 text-xs font-mono" {...props}>
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+        <div className="ml-11 mt-1 flex">
+          <div className="opacity-0 transition-opacity duration-250 group-hover:opacity-100">
+            <MessageActions
+              role="agent"
+              content={message.content}
+              onCopy={() => copyMessage(message.content)}
+              onRetry={regenerate}
+              onDelete={() => deleteMessage(message.id)}
+            />
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (message.role === "file") {
+    // 不渲染中间文件创建通知
+    return null;
+  }
+
+  if (message.role === "log") {
+    return (
+      <motion.div
+        variants={messageVariants}
+        initial="initial"
+        animate="animate"
+        className="py-1"
+      >
+        <div className="flex items-start gap-2 pl-2">
+          <Bug className="mt-1 size-3 shrink-0 text-muted-foreground/40" />
+          <div className="min-w-0 flex-1 rounded-md bg-muted/30 px-3 py-1.5">
+            <code className="text-[11px] leading-relaxed text-muted-foreground/70 break-all font-mono">
+              {message.content}
+              {message.timestamp && (
+                <span className="ml-2 text-[10px] text-muted-foreground/40">[{message.timestamp}]</span>
+              )}
+            </code>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // 默认：agent 消息气泡
   return (
     <motion.div
       variants={messageVariants}
@@ -136,8 +216,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
       className="group py-4"
     >
       <div className="flex items-start gap-4">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
-          <Bot className="size-3.5 text-primary" />
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-full overflow-hidden bg-muted">
+          <img src="/avatar.png" alt="Agent" className="size-full object-cover dark:invert" />
         </div>
         <div className="min-w-0 flex-1 rounded-[24px] rounded-tl-md bg-muted/50 px-5 py-3.5">
           <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground">

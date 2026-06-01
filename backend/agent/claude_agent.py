@@ -116,7 +116,7 @@ class ClaudeAgent:
             else:
                 # 无 Key 时，先发一条友好的秒回优化提示，然后自动降级使用 Claude CLI 获取真实回答
                 yield {
-                    "type": "log",
+                    "type": "text",
                     "message": "💡 **提示**：检测到当前尚未配置 `DEEPSEEK_API_KEY`。系统已自动为你降级为 Claude CLI 流程（冷启动及索引需要约 10 秒）。\n\n*   **秒回优化建议**：在 `backend/.env` 中配置 `DEEPSEEK_API_KEY` 环境变量即可彻底激活 DeepSeek 毫秒级流式秒回通道！\n\n---\n\n正在为你生成回答...\n",
                     "timestamp": self._timestamp()
                 }
@@ -832,40 +832,42 @@ class ClaudeAgent:
         如果配置了 API Key，直接请求大模型 API，否则使用本地规则响应常见问答。
         """
         import os
+
+        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+
+        # 有 API Key 时优先走大模型，仅无 Key 时使用本地规则兜底
+        if not api_key:
+            lower_msg = message.strip().lower()
         
-        # 常见日常问答本地规则，零延迟秒回
-        lower_msg = message.strip().lower()
-        
-        # 1. 你好等问候
-        if any(x in lower_msg for x in ["你好", "hello", "hi", "hey"]):
-            yield {
-                "type": "log",
-                "message": "你好！我是 **UniEmail Agent**。\n\n我是一个专为学术界和高校设计的教师邮箱自动抓取与分析助手。我可以帮你自动爬取各高校官网的教师邮箱，并支持导出 CSV/XLSX 等多种格式。\n\n你可以对我说：“帮我抓取南京大学计算机学院的教师邮箱”，或者问我高校抓取的规则与支持的学校！",
-                "timestamp": self._timestamp()
-            }
-            yield {
-                "type": "done",
-                "message": "已完成本地秒回响应",
-                "timestamp": self._timestamp()
-            }
-            return
+            # 1. 你好等问候
+            if any(x in lower_msg for x in ["你好", "hello", "hi", "hey"]):
+                yield {
+                    "type": "text",
+                    "message": "你好！我是 **UniEmail Agent**。\n\n我是一个专为学术界和高校设计的教师邮箱自动抓取与分析助手。我可以帮你自动爬取各高校官网的教师邮箱，并支持导出 CSV/XLSX 等多种格式。\n\n你可以对我说：“帮我抓取南京大学计算机学院的教师邮箱”，或者问我高校抓取的规则与支持的学校！",
+                    "timestamp": self._timestamp()
+                }
+                yield {
+                    "type": "done",
+                    "message": "已完成本地秒回响应",
+                    "timestamp": self._timestamp()
+                }
+                return
             
-        # 2. 你是谁/自我介绍
-        if any(x in lower_msg for x in ["你是谁", "介绍", "功能", "who are you"]):
-            yield {
-                "type": "log",
-                "message": "我是 **UniEmail Agent**！\n\n### 🌟 我的主要功能包括：\n1. **多源多路径爬取**：深度挖掘高校院系「师资队伍」页面，支持个人详情页深度抓取。\n2. **智能数据清洗**：清洗各种复杂的混淆字符（如 `[at]` -> `@`），过滤无效或公共邮箱。\n3. **多格式数据导出**：支持 CSV, Excel (XLSX), Markdown, HTML, PDF, Word (DOCX) 导出。\n4. **任务与文件隔离**：每个任务专属输出目录，防止数据交叉污染。\n5. **全局技能库**：从过往成功的抓取中自动沉淀提取高校官网的最佳 DOM 选择器和反爬经验。\n\n你可以尝试输入高校抓取任务，我会立即为你启动浏览器自动化爬取进程！",
-                "timestamp": self._timestamp()
-            }
-            yield {
-                "type": "done",
-                "message": "已完成本地秒回响应",
-                "timestamp": self._timestamp()
-            }
-            return
+            # 2. 你是谁/自我介绍
+            if any(x in lower_msg for x in ["你是谁", "介绍", "功能", "who are you"]):
+                yield {
+                    "type": "text",
+                    "message": "我是 **UniEmail Agent**！\n\n### 🌟 我的主要功能包括：\n1. **多源多路径爬取**：深度挖掘高校院系「师资队伍」页面，支持个人详情页深度抓取。\n2. **智能数据清洗**：清洗各种复杂的混淆字符（如 `[at]` -> `@`），过滤无效或公共邮箱。\n3. **多格式数据导出**：支持 CSV, Excel (XLSX), Markdown, HTML, PDF, Word (DOCX) 导出。\n4. **任务与文件隔离**：每个任务专属输出目录，防止数据交叉污染。\n5. **全局技能库**：从过往成功的抓取中自动沉淀提取高校官网的最佳 DOM 选择器和反爬经验。\n\n你可以尝试输入高校抓取任务，我会立即为你启动浏览器自动化爬取进程！",
+                    "timestamp": self._timestamp()
+                }
+                yield {
+                    "type": "done",
+                    "message": "已完成本地秒回响应",
+                    "timestamp": self._timestamp()
+                }
+                return
 
         # 3. 尝试调用大模型 API (优先使用 DeepSeek，其次是 OpenAI/Anthropic 兼容 fallback)
-        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
         if api_key:
             try:
                 # 1. 优先使用 DeepSeek 官方通道
@@ -888,7 +890,7 @@ class ClaudeAgent:
                         content = chunk.choices[0].delta.content or ""
                         if content:
                             yield {
-                                "type": "log",
+                                "type": "text",
                                 "message": content,
                                 "timestamp": self._timestamp()
                             }
@@ -923,7 +925,7 @@ class ClaudeAgent:
                         content = chunk.choices[0].delta.content or ""
                         if content:
                             yield {
-                                "type": "log",
+                                "type": "text",
                                 "message": content,
                                 "timestamp": self._timestamp()
                             }
@@ -968,7 +970,7 @@ class ClaudeAgent:
                                                 delta_text = evt.get("delta", {}).get("text", "")
                                                 if delta_text:
                                                     yield {
-                                                        "type": "log",
+                                                        "type": "text",
                                                         "message": delta_text,
                                                         "timestamp": self._timestamp()
                                                     }
@@ -988,7 +990,7 @@ class ClaudeAgent:
 
         # 4. 无 Key 时的默认优雅反馈
         yield {
-            "type": "log",
+            "type": "text",
             "message": "您好！检测到您发送的是日常闲聊/通用问答。由于您当前尚未在环境变量中配置 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`，系统目前仅对**高校教师邮箱爬取任务**自动启用全套 Claude Code CLI 流程。\n\n*   **若要直接爬取**：请使用类似于 **“帮我抓取南京大学计算机学院教师邮箱”** 的指令，系统将立即为您拉起自动化浏览器抓取进程。\n*   **若要启用闲聊/通用问答**：建议在运行环境（或 `.env` 文件）中配置 `DEEPSEEK_API_KEY` 环境变量，系统即可自动通过高速轻量的 DeepSeek `deepseek-chat` 大模型 API 实时响应您的普通日常问答，实现秒回体验！",
             "timestamp": self._timestamp()
         }

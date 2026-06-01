@@ -5,6 +5,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useUIStore } from "@/stores/ui-store";
 import { api } from "@/services/api";
+import { isCrawlTask } from "@/services/classify";
 import { useHistory } from "@/hooks/queries/use-history";
 import { useTaskMessages } from "@/hooks/queries/use-task-messages";
 import { useRenameTask, usePinTask, useDeleteTask } from "@/hooks/queries/use-task-mutations";
@@ -16,20 +17,6 @@ let messageCounter = 0;
 function nextId(): string {
   messageCounter += 1;
   return `msg-${Date.now()}-${messageCounter}`;
-}
-
-function isCrawlTask(message: string): boolean {
-  const keywords = [
-    "抓取", "爬取", "爬虫", "邮箱", "教师",
-    "crawl", "scrape", "email", "faculty", "teacher", "学院",
-  ];
-  const lower = message.toLowerCase();
-  const hits = keywords.filter(kw => lower.includes(kw)).length;
-  const combos = ["教师邮箱", "crawl email", "scrape email"];
-  if (combos.some(c => lower.includes(c))) {
-    return true;
-  }
-  return hits >= 2;
 }
 
 export function useAgentChat({
@@ -76,7 +63,7 @@ export function useAgentChat({
 
   // ===== WebSocket Stream =====
   const streamEnabled = streaming &&
-    (composerState === "connecting" || composerState === "streaming");
+    (composerState === "connecting" || composerState === "streaming" || isRunning);
 
   const { stop: stopStream } = useTaskStream({
     taskId: activeTaskId,
@@ -85,8 +72,6 @@ export function useAgentChat({
 
   // ===== 本地状态追踪（避免闭包陈旧） =====
   const lastSentContentRef = useRef<string>("");
-  // 模拟进度计时器引用（防止未清除的 interval）
-  const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ===== 自动恢复上次活跃任务 =====
   const initialLoadDoneRef = useRef(false);
@@ -101,6 +86,11 @@ export function useAgentChat({
 
       if (target) {
         handleSelectTask(target);
+        // 如果任务状态是 running 且不在 runningTaskIds 中，尝试重连 WebSocket
+        if (target.status === "running" && !useChatStore.getState().runningTaskIds.includes(target.id)) {
+          setComposerState(target.id, "connecting");
+          addRunningTask(target.id);
+        }
       }
       initialLoadDoneRef.current = true;
     } else if (historyQuery.data && historyQuery.data.length === 0) {
@@ -158,18 +148,8 @@ export function useAgentChat({
 
       appendMessage(taskId, userMsg);
 
-      // 模拟进度反馈（随机流式输出）
-      const simulatedSentences = [
-        "正在全网搜索…",
-        "正在访问目标网站…",
-        "正在提取邮箱信息…",
-        "正在清洗数据…",
-        "正在生成报告…",
-        "正在压缩文件…",
-      ];
-
       // 占位消息（后端连接提示）
-      const isCrawl = isCrawlTask(content);
+      const isCrawl = await isCrawlTask(content);
       const placeholderMsg: Message = {
         id: nextId(),
         role: "agent",
@@ -177,17 +157,6 @@ export function useAgentChat({
         isStreaming: true,
       };
       appendMessage(taskId, placeholderMsg);
-
-      if (isCrawl) {
-        let step = 0;
-        simulationRef.current = setInterval(() => {
-          const text = simulatedSentences[step % simulatedSentences.length];
-          useChatStore.getState().updateMessage(taskId, placeholderMsg.id, {
-            content: text,
-          });
-          step++;
-        }, 1000);
-      }
 
       // 确保当前视图切换到该任务
       switchToTask(taskId);
@@ -200,15 +169,10 @@ export function useAgentChat({
         setComposerState(taskId, "connecting");
         addRunningTask(taskId);
 
-        // 更新 placeholder
+        // 更新 placeholder（后端进度泵和真实日志将通过 WebSocket 流式到达）
         useChatStore.getState().updateMessage(taskId, placeholderMsg.id, {
-          content: isCrawl ? `收到任务，正在为你执行：**${content}**` : "",
+          content: "",
         });
-
-        // 停止模拟进度
-        if (simulationRef.current) {
-          clearInterval(simulationRef.current);
-        }
 
         // 仅当仍处于 connecting 状态时才切换到 streaming
         // 防止 API 延迟返回时覆盖 WebSocket onClose 已设置的状态
@@ -217,11 +181,6 @@ export function useAgentChat({
           setComposerState(taskId, "streaming");
         }
       } catch (err) {
-        // 停止模拟进度
-        if (simulationRef.current) {
-          clearInterval(simulationRef.current);
-        }
-
         const errorMsg: Message = {
           id: nextId(),
           role: "agent",
