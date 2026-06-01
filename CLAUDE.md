@@ -77,7 +77,7 @@ backend (FastAPI + WebSocket)
 
 `ClaudeAgent` 是主 Agent。如果 `claude` CLI 不可用或执行失败，自动回退到 `PlaywrightAgent`（不依赖任何外部 API key，自包含运行）。
 
-Claude Code 使用 DeepSeek `deepseek-v4-pro` 模型（通过 `claude --model deepseek-v4-pro` 指定）。
+Claude Code 使用已安装 CLI 的默认模型（不指定 `--model`，避免无效模型名导致子进程挂起）。
 
 ### WebSocket 消息类型
 

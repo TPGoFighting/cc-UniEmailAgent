@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -11,13 +12,42 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent / "data"
 INDEX_FILE = DATA_DIR / "index.json"
 
+# 敏感信息过滤模式：匹配常见 API Key、Token、密码等
+_SENSITIVE_PATTERNS = [
+    # XCrawl API Key: xc-xxx
+    (re.compile(r'(?i)(xcrawl_api_key["\']?\s*[:=]\s*["\']?)(xc-[a-zA-Z0-9]{20,})(["\'\s,\]}])'), r'\1***REDACTED***\3'),
+    # OpenAI / 通用 sk- 开头的 key
+    (re.compile(r'(?i)(["\']?\w*api_key["\']?\s*[:=]\s*["\']?)(sk-[a-zA-Z0-9]{20,})(["\'\s,\]}])'), r'\1***REDACTED***\3'),
+    # 通用 authorization / bearer token
+    (re.compile(r'(?i)(authorization["\']?\s*[:=]\s*["\']?(?:bearer\s+)?)[a-zA-Z0-9._-]{20,}(["\'\s,\]}])'), r'\1***REDACTED***\2'),
+    # 通用 password / passwd / secret
+    (re.compile(r'(?i)(password["\']?\s*[:=]\s*["\']?)[^\s"\'\]\)]{4,}(["\'\s,\]}])'), r'\1***REDACTED***\2'),
+]
+
+
+def _filter_sensitive(text: str) -> str:
+    """过滤文本中的敏感信息（API Key、Token、密码等）。"""
+    if not isinstance(text, str):
+        return text
+    for pattern, replacement in _SENSITIVE_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
 
 def _atomic_write(filepath: Path, data) -> None:
     """原子写入：先写临时文件，再重命名，防止写入中断导致文件损坏。"""
+    import time
     tmp = filepath.with_suffix(filepath.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, filepath)  # Windows/Linux 均为原子操作
+    for i in range(10):
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, filepath)  # Windows/Linux 均为原子操作
+            return
+        except PermissionError:
+            if i == 9:
+                raise
+            time.sleep(0.05)
 
 
 def _ensure_data_dir():
@@ -38,7 +68,7 @@ class HistoryManager:
         now = datetime.now()
         task = {
             "id": task_id,
-            "title": title[:80],
+            "title": _filter_sensitive(title[:80]),
             "date": now.strftime("%Y-%m-%d"),
             "status": "running",
             "messages": [],
@@ -48,12 +78,17 @@ class HistoryManager:
         return task
 
     def add_message(self, task_id: str, message: dict) -> None:
-        """向指定任务追加一条消息。"""
+        """向指定任务追加一条消息（自动过滤敏感信息）。"""
         task = self._load(task_id)
         if task is None:
             logger.warning(f"任务 {task_id} 不存在，无法追加消息")
             return
-        task["messages"].append(message)
+        # 过滤消息内容中的敏感信息
+        filtered = message.copy()
+        for field in ("content", "message"):
+            if field in filtered and isinstance(filtered[field], str):
+                filtered[field] = _filter_sensitive(filtered[field])
+        task["messages"].append(filtered)
         self._save(task)
 
     def update_status(self, task_id: str, status: str) -> None:
@@ -94,7 +129,7 @@ class HistoryManager:
         task = self._load(task_id)
         if task is None:
             return None
-        title = new_title[:80]
+        title = _filter_sensitive(new_title[:80])
         task["title"] = title
         self._save(task)
         self._update_index(task_id, title, task.get("date", ""), task.get("status", "completed"), task.get("pinned", False))
@@ -167,15 +202,21 @@ class HistoryManager:
 
     def _load(self, task_id: str) -> dict | None:
         """读取单个任务文件。"""
+        import time
         fp = self._filepath(task_id)
         if not fp.exists():
             return None
-        try:
-            with open(fp, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"读取任务 {task_id} 失败: {e}")
-            return None
+        for i in range(10):
+            try:
+                with open(fp, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except PermissionError:
+                if i == 9:
+                    raise
+                time.sleep(0.05)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.error(f"读取任务 {task_id} 失败: {e}")
+                return None
 
     def _update_index(self, task_id: str, title: str, date: str, status: str, pinned: bool = False) -> None:
         """更新索引文件。"""

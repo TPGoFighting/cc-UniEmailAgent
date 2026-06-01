@@ -1,24 +1,28 @@
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+/** Generic request helper */
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...options?.headers,
+      ...(options?.headers ?? {}),
     },
   });
+
   if (!res.ok) {
     throw new Error(`Request failed: ${res.status} ${res.statusText}`);
   }
   return res.json();
 }
 
-function downloadUrl(filename: string): string {
-  return `${BACKEND_URL}/api/download/${encodeURIComponent(filename)}`;
+/** Helper to build download URL */
+function downloadUrl(filename: string, taskId?: string): string {
+  const prefix = taskId ? `${encodeURIComponent(taskId)}/` : "";
+  return `${BACKEND_URL}/api/download/${prefix}${encodeURIComponent(filename)}`;
 }
 
-
+/** Types for university endpoints */
 interface UniversityListResponse {
   total: number;
   groups: Array<{ province: string; count: number; cities: Array<{ city: string; count: number; universities: any[] }> }>;
@@ -59,24 +63,12 @@ interface MailSendResponse {
 
 export const api = {
   getHistory: () => request<{ tasks: Array<{ id: string; title: string; date: string; status: string; messages?: unknown[]; pinned?: boolean }> }>(`${BACKEND_URL}/api/history`),
-  getTaskMessages: (taskId: string, limit = 0) =>
-    request<{ messages?: unknown[]; total?: number; task?: { messages?: unknown[] } }>(`${BACKEND_URL}/api/history/${taskId}?limit=${limit}`),
-  searchTasks: (query: string) =>
-    request<{ tasks: Array<{ id: string; title: string; date: string; status: string; messages?: unknown[]; pinned?: boolean }> }>(`${BACKEND_URL}/api/history/search?q=${encodeURIComponent(query)}`),
-  createChat: (message: string, taskId?: string) =>
-    request<{ task_id: string }>(`${BACKEND_URL}/api/chat`, {
-      method: "POST",
-      body: JSON.stringify({ message, task_id: taskId }),
-    }),
-  renameTask: (taskId: string, title: string) =>
-    request<void>(`${BACKEND_URL}/api/history/${taskId}/rename`, {
-      method: "PATCH",
-      body: JSON.stringify({ title }),
-    }),
-  pinTask: (taskId: string) =>
-    request<void>(`${BACKEND_URL}/api/history/${taskId}/pin`, { method: "PATCH" }),
-  deleteTask: (taskId: string) =>
-    request<void>(`${BACKEND_URL}/api/history/${taskId}`, { method: "DELETE" }),
+  getTaskMessages: (taskId: string, limit = 0) => request<{ messages?: unknown[]; total?: number; task?: { messages?: unknown[] } }>(`${BACKEND_URL}/api/history/${taskId}?limit=${limit}`),
+  searchTasks: (query: string) => request<{ tasks: Array<{ id: string; title: string; date: string; status: string; messages?: unknown[]; pinned?: boolean }> }>(`${BACKEND_URL}/api/history/search?q=${encodeURIComponent(query)}`),
+  createChat: (message: string, taskId?: string) => request<{ task_id: string }>(`${BACKEND_URL}/api/chat`, { method: "POST", body: JSON.stringify({ message, task_id: taskId }) }),
+  renameTask: (taskId: string, title: string) => request<void>(`${BACKEND_URL}/api/history/${taskId}/rename`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  pinTask: (taskId: string) => request<void>(`${BACKEND_URL}/api/history/${taskId}/pin`, { method: "PATCH" }),
+  deleteTask: (taskId: string) => request<void>(`${BACKEND_URL}/api/history/${taskId}`, { method: "DELETE" }),
   downloadUrl,
   getBackendUrl: () => BACKEND_URL,
   getWsUrl: (taskId: string) => `${BACKEND_URL.replace("http", "ws")}/ws/${taskId}`,
@@ -87,12 +79,8 @@ export const api = {
     if (params?.q) search.set("q", params.q);
     return request<UniversityListResponse>(`${BACKEND_URL}/api/universities${search.toString() ? `?${search.toString()}` : ""}`);
   },
-  getUniversityRecords: (name: string) =>
-    request<UniversityRecordsResponse>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/records`),
-  getUniversityTable: (
-    name: string,
-    params?: { task_id?: string; file?: string; limit?: number; offset?: number; q?: string; department?: string; valid_only?: boolean }
-  ) => {
+  getUniversityRecords: (name: string) => request<UniversityRecordsResponse>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/records`),
+  getUniversityTable: (name: string, params?: { task_id?: string; file?: string; limit?: number; offset?: number; q?: string; department?: string; valid_only?: boolean }) => {
     const search = new URLSearchParams();
     if (params?.task_id) search.set("task_id", params.task_id);
     if (params?.file) search.set("file", params.file);
@@ -103,27 +91,32 @@ export const api = {
     if (params?.valid_only) search.set("valid_only", "true");
     return request<UniversityTableResponse>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/table?${search.toString()}`);
   },
-  detectSmtp: (email: string) =>
-    request<Record<string, unknown>>(`${BACKEND_URL}/api/smtp/detect`, {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    }),
-  verifySmtp: (input: Record<string, unknown>) =>
-    request<Record<string, unknown>>(`${BACKEND_URL}/api/smtp/verify`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-  previewMail: (input: Record<string, unknown>) =>
-    request<MailPreviewResponse>(`${BACKEND_URL}/api/mail/preview`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-  sendMail: (input: Record<string, unknown>) =>
-    request<MailSendResponse>(`${BACKEND_URL}/api/mail/send`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+  // ── 高校文件 CRUD ──
+  uploadUniversityFile: (name: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return fetch(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/files`, { method: "POST", body: form }).then(r => r.json());
+  },
+  deleteUniversityFile: (name: string, task_id: string, filename: string) =>
+    request<{ ok: boolean }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/files?task_id=${encodeURIComponent(task_id)}&filename=${encodeURIComponent(filename)}`, { method: "DELETE" }),
+  renameUniversityFile: (name: string, task_id: string, filename: string, new_filename: string) =>
+    request<{ ok: boolean }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/files`, { method: "PATCH", body: JSON.stringify({ task_id, filename, new_filename }) }),
+  // ── 表格行 CRUD ──
+  addTableRow: (name: string, task_id: string, file: string, row: Record<string, string>) =>
+    request<{ ok: boolean; row_index: number }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/table/rows`, { method: "POST", body: JSON.stringify({ task_id, file, row }) }),
+  updateTableRow: (name: string, task_id: string, file: string, row_index: number, row: Record<string, string>) =>
+    request<{ ok: boolean }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/table/rows/${row_index}`, { method: "PUT", body: JSON.stringify({ task_id, file, row }) }),
+  deleteTableRow: (name: string, task_id: string, file: string, row_index: number) =>
+    request<{ ok: boolean }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/table/rows/${row_index}?task_id=${encodeURIComponent(task_id)}&file=${encodeURIComponent(file)}`, { method: "DELETE" }),
+  // ── SMTP / 邮件 ──
+  detectSmtp: (email: string) => request<Record<string, unknown>>(`${BACKEND_URL}/api/smtp/detect`, { method: "POST", body: JSON.stringify({ email }) }),
+  verifySmtp: (input: Record<string, unknown>) => request<Record<string, unknown>>(`${BACKEND_URL}/api/smtp/verify`, { method: "POST", body: JSON.stringify(input) }),
+  previewMail: (input: Record<string, unknown>) => request<MailPreviewResponse>(`${BACKEND_URL}/api/mail/preview`, { method: "POST", body: JSON.stringify(input) }),
+  sendMail: (input: Record<string, unknown>) => request<MailSendResponse>(`${BACKEND_URL}/api/mail/send`, { method: "POST", body: JSON.stringify(input) }),
   getMailJob: (jobId: string) => request<Record<string, unknown>>(`${BACKEND_URL}/api/mail/jobs/${jobId}`),
-  exportMailJobUrl: (jobId: string, format = "csv") =>
-    `${BACKEND_URL}/api/mail/jobs/${jobId}/export?format=${encodeURIComponent(format)}`,
+  exportMailJobUrl: (jobId: string, format = "csv") => `${BACKEND_URL}/api/mail/jobs/${jobId}/export?format=${encodeURIComponent(format)}`,
+  getActiveAgents: () => request<{ active_tasks: Array<{ task_id: string; title: string; started_at: string }> }>(`${BACKEND_URL}/api/agent/active`),
+  terminateAgent: (taskId: string) => request<{ ok: boolean; message: string }>(`${BACKEND_URL}/api/agent/terminate`, { method: "POST", body: JSON.stringify({ task_id: taskId }) }),
+  classifyTask: (message: string) => request<{ is_crawl: boolean }>(`${BACKEND_URL}/api/classify`, { method: "POST", body: JSON.stringify({ message }) }),
+  cleanUniversityTables: (name: string) => request<{ ok: boolean; name: string; stats?: { total_before: number; total_after: number; deduped: number; bad_name: number; admin_removed: number }; files?: Array<{ filename: string; before: number; after: number }>; error?: string }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/clean`, { method: "POST" }),
 };

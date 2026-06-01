@@ -75,5 +75,161 @@ class MailerTests(unittest.TestCase):
         self.assertFalse(is_valid_email("teacher at example.edu.cn"))
 
 
+class AgentProcessTests(unittest.TestCase):
+    def test_agent_process_registration_and_termination(self):
+        from agent.claude_agent import ClaudeAgent
+        agent = ClaudeAgent()
+
+        class DummyProcess:
+            def __init__(self):
+                self.killed = False
+
+            def kill(self):
+                self.killed = True
+
+        dummy = DummyProcess()
+        task_id = "test-task-123"
+
+        agent.active_procs[task_id] = dummy
+        self.assertIn(task_id, agent.active_procs)
+
+        ok = agent.stop_task(task_id)
+        self.assertTrue(ok)
+        self.assertTrue(dummy.killed)
+        self.assertNotIn(task_id, agent.active_procs)
+
+        ok_fail = agent.stop_task("non-existent")
+        self.assertFalse(ok_fail)
+
+
+class GlobalSkillsAndIsolationTests(unittest.TestCase):
+    """验证任务上下文隔离 + 全局技能注入逻辑。"""
+
+    def _call_build_context_prompt(self, task_data, latest_user_msg):
+        """动态导入 main 模块中的辅助函数（避免 FastAPI 全局 app 副作用）。"""
+        import importlib, sys as _sys
+        # 确保 backend 目录在 path 中
+        backend_dir = str(Path(__file__).resolve().parents[1])
+        if backend_dir not in _sys.path:
+            _sys.path.insert(0, backend_dir)
+        import main as _main
+        return _main._build_context_prompt(task_data, latest_user_msg)
+
+    def _call_load_global_skills(self):
+        import main as _main
+        return _main._load_global_skills()
+
+    # -------------------------------------------------------
+    # 1. 任务上下文隔离：新任务只包含自己的消息
+    # -------------------------------------------------------
+    def test_new_task_prompt_does_not_contain_other_task_messages(self):
+        """不同 task_data 对象之间不会互相污染，新任务仅含自身消息。"""
+        task_a = {
+            "messages": [
+                {"role": "user", "content": "任务A的请求"},
+            ]
+        }
+        task_b = {
+            "messages": [
+                {"role": "user", "content": "任务B的请求"},
+            ]
+        }
+        prompt_a, _, _ = self._call_build_context_prompt(task_a, "任务A的请求")
+        prompt_b, _, _ = self._call_build_context_prompt(task_b, "任务B的请求")
+
+        # A 的 prompt 不应出现 B 的内容
+        self.assertNotIn("任务B", prompt_a)
+        # B 的 prompt 不应出现 A 的内容
+        self.assertNotIn("任务A", prompt_b)
+
+    # -------------------------------------------------------
+    # 2. 追问场景只包含本任务的历史，不含其他任务消息
+    # -------------------------------------------------------
+    def test_followup_only_contains_own_history(self):
+        """多轮追问时，上下文摘要只引用自身历史消息，而非全局或其他任务消息。"""
+        task_data = {
+            "messages": [
+                {"role": "user", "content": "第一次问题"},
+                {"role": "agent", "content": "第一次回答"},
+                {"role": "user", "content": "第二次问题"},
+            ]
+        }
+        prompt, first_msg, is_followup = self._call_build_context_prompt(task_data, "第二次问题")
+
+        self.assertTrue(is_followup)
+        self.assertIn("第一次问题", prompt)   # 包含本任务历史
+        self.assertIn("第二次问题", prompt)   # 包含当前请求
+        self.assertNotIn("其他任务", prompt)  # 不包含无关内容
+
+    # -------------------------------------------------------
+    # 3. 全局技能注入——无 skills 文件时不注入任何脏内容
+    # -------------------------------------------------------
+    def test_no_global_skills_file_returns_plain_message(self):
+        """当 global_crawling_rules.md 不存在时，新任务 prompt 就是原始用户消息。"""
+        import main as _main
+        original = _main.GLOBAL_SKILLS_FILE
+
+        # 临时指向一个不存在的路径
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmp:
+            _main.GLOBAL_SKILLS_FILE = Path(tmp) / "nonexistent.md"
+            task_data = {"messages": [{"role": "user", "content": "抓取清华大学邮箱"}]}
+            prompt, _, is_followup = self._call_build_context_prompt(task_data, "抓取清华大学邮箱")
+        _main.GLOBAL_SKILLS_FILE = original  # 恢复
+
+        self.assertFalse(is_followup)
+        self.assertEqual(prompt, "抓取清华大学邮箱")
+
+    # -------------------------------------------------------
+    # 4. 全局技能注入——有 skills 文件时正确注入到新任务 prompt
+    # -------------------------------------------------------
+    def test_global_skills_injected_into_new_task_prompt(self):
+        """当 global_crawling_rules.md 存在时，新任务 prompt 首部包含技能块。"""
+        import main as _main
+        original = _main.GLOBAL_SKILLS_FILE
+
+        with tempfile.TemporaryDirectory() as tmp:
+            skills_file = Path(tmp) / "global_crawling_rules.md"
+            skills_file.write_text("## 🏫 清华大学 爬取策略\n* https://www.tsinghua.edu.cn/cs/", encoding="utf-8")
+            _main.GLOBAL_SKILLS_FILE = skills_file
+
+            task_data = {"messages": [{"role": "user", "content": "抓取清华大学邮箱"}]}
+            prompt, _, is_followup = self._call_build_context_prompt(task_data, "抓取清华大学邮箱")
+        _main.GLOBAL_SKILLS_FILE = original  # 恢复
+
+        self.assertFalse(is_followup)
+        self.assertIn("全局共享技能与爬取经验库", prompt)
+        self.assertIn("清华大学 爬取策略", prompt)
+        self.assertIn("抓取清华大学邮箱", prompt)
+
+    # -------------------------------------------------------
+    # 5. 全局技能注入——追问时也包含技能块
+    # -------------------------------------------------------
+    def test_global_skills_injected_into_followup_prompt(self):
+        """追问场景下全局技能同样被注入在 prompt 开头。"""
+        import main as _main
+        original = _main.GLOBAL_SKILLS_FILE
+
+        with tempfile.TemporaryDirectory() as tmp:
+            skills_file = Path(tmp) / "global_crawling_rules.md"
+            skills_file.write_text("## 🏫 南京大学 爬取策略\n* https://www.nju.edu.cn/teachers/", encoding="utf-8")
+            _main.GLOBAL_SKILLS_FILE = skills_file
+
+            task_data = {
+                "messages": [
+                    {"role": "user", "content": "抓取南京大学邮箱"},
+                    {"role": "agent", "content": "已生成文件"},
+                    {"role": "user", "content": "再加一个DOCX格式"},
+                ]
+            }
+            prompt, _, is_followup = self._call_build_context_prompt(task_data, "再加一个DOCX格式")
+        _main.GLOBAL_SKILLS_FILE = original  # 恢复
+
+        self.assertTrue(is_followup)
+        self.assertIn("全局共享技能与爬取经验库", prompt)
+        self.assertIn("南京大学 爬取策略", prompt)
+        self.assertIn("再加一个DOCX格式", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

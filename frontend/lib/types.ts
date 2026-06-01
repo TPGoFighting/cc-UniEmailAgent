@@ -1,4 +1,4 @@
-export type MessageRole = "user" | "agent" | "progress" | "download";
+export type MessageRole = "user" | "agent" | "text" | "progress" | "download" | "log" | "file";
 
 export interface Message {
   id: string;
@@ -7,6 +7,7 @@ export interface Message {
   timestamp?: string;
   filename?: string;
   url?: string;
+  filepath?: string;
   isStreaming?: boolean;
   step?: number;
   total?: number;
@@ -23,18 +24,23 @@ export interface Task {
   pinned?: boolean;
 }
 
-export type ComposerState = "idle" | "connecting" | "streaming" | "completed" | "stopped";
+export type ComposerState = "idle" | "connecting" | "streaming" | "completed" | "stopped" | "error";
 
 export type WSEvent =
   | { type: "progress"; message: string; step: number; total: number; timestamp: string }
   | { type: "download"; message: string; filename: string; url: string; timestamp: string }
+  | { type: "file"; message: string; filename: string; filepath: string; timestamp: string }
+  | { type: "log"; message: string; timestamp: string }
+  | { type: "text"; message: string; timestamp: string }
   | { type: "done"; message?: string; timestamp?: string }
   | { type: "error"; message: string };
 
 export interface WSEventHandlers {
   onLog: (msg: string, timestamp: string) => void;
+  onText: (msg: string, timestamp: string) => void;
   onProgress: (msg: string, step: number, total: number, timestamp: string) => void;
   onDownload: (msg: string, filename: string, url: string, timestamp: string) => void;
+  onFile: (msg: string, filename: string, filepath: string, timestamp: string) => void;
   onDone: (message?: string, timestamp?: string) => void;
   onError: (msg: string) => void;
   onClose: () => void;

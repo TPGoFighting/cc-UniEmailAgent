@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 600
 PAGE_TIMEOUT = 30000  # 单页加载超时(ms)
 PROFILE_TIMEOUT = 15000  # 详情页加载超时(ms)
-MAX_TEACHERS_PER_DEPT = 30  # 每个学院最多处理的教师数
-MAX_DEPTS = 15  # 最多处理的学院数
+MAX_TEACHERS_PER_DEPT = 999999  # 默认不限制，完整爬取所有教师
+MAX_DEPTS = 999999  # 默认不限制，完整爬取所有学院
 
 # 高校 URL 映射
 UNIVERSITY_URLS: dict[str, str] = {
@@ -95,9 +95,28 @@ class PlaywrightAgent:
     def __init__(self):
         self._base_output_dir = Path(__file__).parent.parent / "outputs"
         self._nav_text_cache: set[str] = set()  # 缓存已识别的导航文字
+        self._browser = None  # Playwright browser 实例，供 stop_task 关闭
+        self._context = None  # Browser context 实例
+        self._stopped = False  # 标记是否已被手动停止
 
     def _timestamp(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
+
+    def stop_task(self, task_id: str = "") -> bool:
+        """终止正在运行的浏览器进程。"""
+        self._stopped = True
+        try:
+            if self._context:
+                self._context.close()
+        except Exception:
+            pass
+        try:
+            if self._browser:
+                self._browser.close()
+        except Exception:
+            pass
+        logger.info("PlaywrightAgent: 浏览器已关闭（手动终止）")
+        return True
 
     def _extract_university(self, message: str) -> tuple[str, str | None]:
         """从用户消息中提取大学名称和对应 URL。
@@ -203,11 +222,13 @@ class PlaywrightAgent:
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
+            self._browser = browser  # 保存引用，供 stop_task 关闭
             context = await browser.new_context(
                 viewport={"width": 1920, "height": 1080},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             )
+            self._context = context  # 保存引用，供 stop_task 关闭
             page = await context.new_page()
 
             try:
@@ -274,11 +295,14 @@ class PlaywrightAgent:
                     all_teachers = []
                     dept_count = 0
 
-                    for dept_name, dept_url in dept_links[:MAX_DEPTS]:
+                    for dept_name, dept_url in dept_links:
+                        if self._stopped:
+                            yield {"type": "log", "message": "任务已被手动终止", "timestamp": self._timestamp()}
+                            break
                         dept_count += 1
                         yield {
                             "type": "log",
-                            "message": f"📌 第4层 [{dept_count}/{min(len(dept_links), MAX_DEPTS)}]：进入 {dept_name} → {dept_url}",
+                            "message": f"📌 第4层 [{dept_count}/{len(dept_links)}]：进入 {dept_name} → {dept_url}",
                             "timestamp": self._timestamp(),
                         }
 
@@ -545,12 +569,12 @@ class PlaywrightAgent:
                 });
             }
 
-            return entries.slice(0, 50);  // 每个学院最多50人
+            return entries;  // 不限制，完整爬取
         }""")
 
         # 逐个访问教师详情页提取邮箱
         results = []
-        for i, entry in enumerate(teacher_entries[:MAX_TEACHERS_PER_DEPT]):
+        for i, entry in enumerate(teacher_entries):
             name = entry["name"]
             profile_url = entry["url"]
             list_title = entry.get("title", "")

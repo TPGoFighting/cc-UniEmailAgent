@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## 项目概述
 
-UniEmail Agent — 用户输入自然语言任务（如"抓取南京大学计算机学院教师邮箱"），AI Agent 自动操作浏览器、提取教师邮箱、导出 CSV/XLSX/HTML/PDF/DOCX/MD 六种格式。
+UniEmail Agent — 用户输入自然语言任务（如"抓取南京大学计算机学院教师邮箱"），AI Agent 自动操作浏览器、提取教师邮箱、默认导出 CSV/XLSX两种格式，还可以按需导出HTML/PDF/DOCX/MD 四种格式
 
 ## 启动命令
 
@@ -77,7 +77,7 @@ backend (FastAPI + WebSocket)
 
 `ClaudeAgent` 是主 Agent。如果 `Codex` CLI 不可用或执行失败，自动回退到 `PlaywrightAgent`（不依赖任何外部 API key，自包含运行）。
 
-Codex 使用 DeepSeek `deepseek-v4-pro` 模型（通过 `Codex --model deepseek-v4-pro` 指定）。
+Agent 使用已安装 CLI 的默认模型（不指定 `--model`，避免无效模型名导致子进程挂起）。
 
 ### WebSocket 消息类型
 

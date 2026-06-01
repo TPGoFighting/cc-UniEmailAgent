@@ -102,17 +102,10 @@ export function EmptyState({
         {/* Logo */}
         <motion.div
           variants={itemVariants}
-          className="mb-6 flex size-14 items-center justify-center rounded-[24px] bg-primary/10"
+          className="mb-6 flex items-center justify-center"
         >
-          <MessageSquare className="size-6 text-primary" />
+          <img src="/logo.png" alt="UniEmail Agent" className="h-28 object-contain" />
         </motion.div>
-
-        <motion.h2
-          variants={itemVariants}
-          className="mb-2 text-xl font-semibold tracking-tight text-foreground"
-        >
-          UniEmail Agent
-        </motion.h2>
         <motion.p
           variants={itemVariants}
           className="mb-8 text-center text-sm leading-relaxed text-muted-foreground"

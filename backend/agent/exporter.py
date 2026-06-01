@@ -43,10 +43,60 @@ def cleanup_task_dir(task_id: str) -> None:
         pass
 
 
-def _make_filename(university: str, ext: str) -> str:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe = (university or "unknown").replace(" ", "_")
-    return f"{safe}_{ts}.{ext}"
+def _make_filename(university: str, ext: str, task_id: str = "") -> str:
+    import re
+    # 1. 尝试从任务历史提取自定义需求 (如：院系/专业分类等名称)
+    requirements = ""
+    if task_id:
+        try:
+            from agent.history import history
+            task = history.get(task_id)
+            if task:
+                user_msg = ""
+                for m in task.get("messages", []):
+                    if m.get("role") == "user":
+                        user_msg = m.get("content", "")
+                        break
+                if not user_msg:
+                    user_msg = task.get("title", "")
+                
+                # 匹配院/系/中心/实验室/研究院等标志性层级名词
+                m = re.search(r"([一-鿿]{2,15}(?:学院|系|中心|研究所|研究室|实验室|部))", user_msg)
+                if m:
+                    dept = m.group(1)
+                    if university in dept:
+                        dept = dept.replace(university, "")
+                    requirements = f"_{dept}"
+        except Exception as e:
+            logger.warning(f"提取自定义需求失败: {e}")
+
+    safe_uni = (university or "unknown").replace(" ", "_")
+    
+    # 2. 动态检测已有文件版本，实现 V X.X.X 的自动增长 (从 1.0.0 开始递增最后一位)
+    prefix = f"{safe_uni}{requirements}_V"
+    max_major, max_minor, max_patch = 1, 0, 0
+    found = False
+    try:
+        base = _BASE_OUTPUT_DIR.resolve()
+        for f in base.rglob(f"*{ext}"):
+            name = f.name
+            if name.startswith(prefix):
+                # 截取版本号部分 (e.g. major.minor.patch)
+                ver_part = name[len(prefix):-len(ext)-1]
+                m = re.match(r"^(\d+)\.(\d+)\.(\d+)", ver_part)
+                if m:
+                    found = True
+                    major, minor, patch = map(int, m.groups())
+                    if (major, minor, patch) > (max_major, max_minor, max_patch):
+                        max_major, max_minor, max_patch = major, minor, patch
+    except Exception as e:
+        logger.warning(f"自动识别文件名版本号失败: {e}")
+
+    version = "1.0.0"
+    if found:
+        version = f"{max_major}.{max_minor}.{max_patch + 1}"
+
+    return f"{safe_uni}{requirements}_V{version}.{ext}"
 
 
 def _build_rows(data: list[dict]) -> list[list]:
@@ -68,7 +118,7 @@ def _build_rows(data: list[dict]) -> list[list]:
 
 def export_csv(data: list[dict], university: str, task_id: str = "") -> Path:
     out_dir = get_task_dir(task_id)
-    filepath = out_dir / _make_filename(university, "csv")
+    filepath = out_dir / _make_filename(university, "csv", task_id)
 
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
@@ -88,7 +138,7 @@ def export_xlsx(data: list[dict], university: str, task_id: str = "") -> Path:
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
     out_dir = get_task_dir(task_id)
-    filepath = out_dir / _make_filename(university, "xlsx")
+    filepath = out_dir / _make_filename(university, "xlsx", task_id)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -137,7 +187,7 @@ def export_xlsx(data: list[dict], university: str, task_id: str = "") -> Path:
 
 def export_markdown(data: list[dict], university: str, task_id: str = "") -> Path:
     out_dir = get_task_dir(task_id)
-    filepath = out_dir / _make_filename(university, "md")
+    filepath = out_dir / _make_filename(university, "md", task_id)
 
     lines = [
         f"# {university} — 教师邮箱列表",
@@ -172,7 +222,7 @@ def export_markdown(data: list[dict], university: str, task_id: str = "") -> Pat
 
 def export_html(data: list[dict], university: str, task_id: str = "") -> Path:
     out_dir = get_task_dir(task_id)
-    filepath = out_dir / _make_filename(university, "html")
+    filepath = out_dir / _make_filename(university, "html", task_id)
 
     rows_html = ""
     for i, row in enumerate(data, 1):
@@ -261,7 +311,7 @@ def export_pdf(data: list[dict], university: str, task_id: str = "") -> Path:
     from fpdf import FPDF
 
     out_dir = get_task_dir(task_id)
-    filepath = out_dir / _make_filename(university, "pdf")
+    filepath = out_dir / _make_filename(university, "pdf", task_id)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -365,7 +415,7 @@ def export_docx(data: list[dict], university: str, task_id: str = "") -> Path:
     from docx.oxml.ns import qn
 
     out_dir = get_task_dir(task_id)
-    filepath = out_dir / _make_filename(university, "docx")
+    filepath = out_dir / _make_filename(university, "docx", task_id)
 
     doc = Document()
 

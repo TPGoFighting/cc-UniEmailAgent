@@ -34,6 +34,7 @@ ADMIN_EMAIL_PREFIXES = [
     "webmaster", "admin", "office", "info", "master", "root",
     "postmaster", "wxyxz", "xwcb", "bgs", "dangzheng", "yuanban",
     "dangban", "renshi", "jiaowu", "xuegong", "tuanwei", "yanjiusheng",
+    "gysj", "gyyz", "glxb",  # 书记信箱、院长信箱、联系我们
 ]
 
 # 姓名黑名单 — 精确匹配，这些肯定不是人名
@@ -42,6 +43,7 @@ NAME_BLACKLIST = {
     "新闻公", "通知公", "各类公", "招生培", "本科生", "研究生", "社会培",
     "留学生", "教学科", "实验教", "图书资", "博士后", "访问学",
     "南京大", "北京大", "清华大", "复旦大", "浙江大", "武汉大",
+    "书记信箱", "院长信箱", "联系我们",
 }
 
 
@@ -94,11 +96,11 @@ def is_clean_title(title: str) -> bool:
     # 过长（项目经历或论文标题）
     if len(title) > 30:
         return False
-    # 含可疑关键词
+    # 含可疑关键词（排除合法职称中的字）
     pollution_keywords = [
-        "基金", "项目", "论文", "研究", "国家", "年度", "重点",
-        "编号", "发表", "课题", "获奖", "专利", "出版", "著",
-        "通知", "公告", "公示", "招聘", "计划",
+        "基金", "项目", "论文", "国家", "年度", "重点",
+        "编号", "发表", "课题", "获奖", "专利", "出版",
+        "通知", "公告", "公示", "招聘", "计划", "著",
     ]
     if any(kw in title for kw in pollution_keywords):
         return False
@@ -164,9 +166,9 @@ def clean_records(records: list[dict]) -> list[dict]:
     records = [r for r in records if not r["name"] or is_valid_person_name(r["name"])]
     stats["bad_name"] = before - len(records)
 
-    # 第3步：邮箱格式验证
+    # 第3步：邮箱格式验证（空邮箱跳过不验证，保留为"无邮箱"）
     before_email = len(records)
-    records = [r for r in records if is_valid_email_format(r["email"])]
+    records = [r for r in records if not r["email"] or is_valid_email_format(r["email"])]
     stats["bad_email_format"] = before_email - len(records)
 
     # 第4步：排除学院公共邮箱
@@ -175,9 +177,14 @@ def clean_records(records: list[dict]) -> list[dict]:
     stats["admin_email"] = before_admin - len(records)
 
     # 第5步：按邮箱去重（保留信息最全的 — 有姓名+职称优先）
+    # 同时记录无邮箱的条目（空邮箱也保留，但只保留最新的一个）
     email_groups: dict[str, list[dict]] = defaultdict(list)
+    no_email_entries = []  # 无邮箱的单独收集
     for r in records:
-        email_groups[r["email"]].append(r)
+        if r["email"]:
+            email_groups[r["email"]].append(r)
+        else:
+            no_email_entries.append(r)
 
     deduped = []
     for email, group in email_groups.items():
@@ -186,7 +193,7 @@ def clean_records(records: list[dict]) -> list[dict]:
             s = 0
             if item.get("name"):
                 s += 2
-            if is_clean_title(item.get("title", "")):
+            if item.get("title"):
                 s += 1
             if item.get("department"):
                 s += 1
@@ -196,6 +203,15 @@ def clean_records(records: list[dict]) -> list[dict]:
 
         group.sort(key=score, reverse=True)
         deduped.append(group[0])
+
+    # 无邮箱条目去重：按姓名去重
+    seen_no_email = set()
+    for r in no_email_entries:
+        name = r.get("name", "")
+        if name and name not in seen_no_email:
+            seen_no_email.add(name)
+            deduped.append(r)
+
     stats["deduped"] = len(records) - len(deduped)
     records = deduped
 

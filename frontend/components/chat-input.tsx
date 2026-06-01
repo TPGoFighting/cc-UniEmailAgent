@@ -4,7 +4,7 @@ import { useState, type KeyboardEvent, type ChangeEvent } from "react";
 import { ArrowUp, Loader2, Square, RotateCcw, Play } from "lucide-react";
 import { useAutoResize } from "@/hooks/use-auto-resize";
 
-export type ComposerState = "idle" | "connecting" | "streaming" | "completed" | "stopped";
+export type ComposerState = "idle" | "connecting" | "streaming" | "completed" | "stopped" | "error";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -130,10 +130,7 @@ export function ChatInput({
           {isStopped && !input.trim() && (
             <button
               onClick={() => {
-                if (input.trim()) {
-                  onSend(input.trim());
-                  setInput("");
-                }
+                onSend("继续");
               }}
               className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-250 hover:-translate-y-[1px] hover:opacity-90"
               style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}

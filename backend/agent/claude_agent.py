@@ -381,23 +381,8 @@ class ClaudeAgent:
 
         try:
             if is_threaded:
-                msg_timeout = 600  # 首条消息等 10 分钟，后续每条等 5 分钟
                 while True:
-                    try:
-                        msg = await asyncio.wait_for(process.get(), timeout=msg_timeout)
-                    except asyncio.TimeoutError:
-                        logger.warning("[SUBDEBUG] 队列读取超时（%ss），终止 task %s", msg_timeout, task_id)
-                        proc = self.active_procs.pop(task_id, None)
-                        if proc:
-                            try: proc.kill()
-                            except Exception: pass
-                        yield {
-                            "type": "error",
-                            "message": f"Agent 长时间无响应（>{msg_timeout}s），已自动终止",
-                            "timestamp": self._timestamp(),
-                        }
-                        return
-                    msg_timeout = 300
+                    msg = await process.get()
                     logger.info("[SUBDEBUG] 收到队列消息 _type=%s", msg.get("_type", "?"))
                     if msg["_type"] == "line":
                         line_preview = msg["data"][:100] if isinstance(msg.get("data"), str) else "?"

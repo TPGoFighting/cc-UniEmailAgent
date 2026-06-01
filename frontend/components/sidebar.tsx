@@ -51,17 +51,11 @@ export function Sidebar() {
     <aside className="flex h-full flex-col bg-[#F7F7F8] dark:bg-[#202123]">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-4 py-4">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-primary">
-          <MessageSquare className="size-4 text-primary-foreground" />
-        </div>
-        <div>
-          <h1 className="text-sm font-semibold leading-tight text-foreground">
-            UniEmail Agent
-          </h1>
-          <p className="text-xs text-[#9A9AA5] dark:text-[#6E6E80]">
-            高校邮箱抓取助手
-          </p>
-        </div>
+        <img 
+          src="/logo.png" 
+          alt="UniEmail Agent" 
+          className="h-16 max-w-[180px] object-contain mix-blend-multiply dark:mix-blend-normal dark:invert" 
+        />
       </div>
 
       {/* 新建任务 */}

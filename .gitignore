@@ -8,13 +8,12 @@ frontend/next-env.d.ts
 frontend/.turbo/
 
 # ── 后端 ──
-backend/__pycache__/
-backend/agent/__pycache__/
-backend/*.pyc
+**/__pycache__/
 backend/outputs/
 backend/data/
 backend/skills/
 backend/.env
+*.pyc
 
 # ── 通用 ──
 .git/

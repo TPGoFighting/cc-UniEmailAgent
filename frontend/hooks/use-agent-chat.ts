@@ -162,17 +162,15 @@ export function useAgentChat({
       switchToTask(taskId);
 
       try {
-        const res = await api.createChat(content, taskId);
-        const { task_id } = res;
+        // ⚡ 先发请求再等结果，利用 API 延迟期间建立 WS
+        const chatPromise = api.createChat(content, taskId);
 
-        // 任务已在后端创建，安全地建立 WebSocket 连接（修复竞态条件）
+        // 立即建立 WebSocket 连接，减少等待时间
         setComposerState(taskId, "connecting");
         addRunningTask(taskId);
 
-        // 更新 placeholder（后端进度泵和真实日志将通过 WebSocket 流式到达）
-        useChatStore.getState().updateMessage(taskId, placeholderMsg.id, {
-          content: "",
-        });
+        const res = await chatPromise;
+        const { task_id } = res;
 
         // 仅当仍处于 connecting 状态时才切换到 streaming
         // 防止 API 延迟返回时覆盖 WebSocket onClose 已设置的状态
