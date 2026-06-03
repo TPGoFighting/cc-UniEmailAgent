@@ -274,7 +274,7 @@ def build_university_response(province: str = "", tier: str = "", q: str = "") -
             "table_count": stats["table_count"],
             "row_count": rows,
             "valid_email_count": emails,
-        }})
+        }, "has_data": stats["table_count"] > 0 and rows > 0})
 
     provinces = sorted({i["province"] for i in load_universities()})
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -307,7 +307,7 @@ def get_university_records(name: str) -> dict[str, Any]:
     files = [p for p in _candidate_output_files() if name in p.name]
     table_files = [p for p in files if p.suffix.lower() in (".csv", ".xlsx")]
     records = []
-    for path in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True):
+    for path in files:
         row_count = 0
         valid_email_count = 0
         if path.suffix.lower() in (".csv", ".xlsx"):
@@ -328,6 +328,8 @@ def get_university_records(name: str) -> dict[str, Any]:
             "valid_email_count": valid_email_count,
             "previewable": path.suffix.lower() in (".csv", ".xlsx"),
         })
+    # 按有效邮箱数降序排列（数据最完善的排最前）
+    records.sort(key=lambda r: r["valid_email_count"], reverse=True)
     return {"name": name, "summary": output_stats_for_school(name, files), "records": records, "table_files": len(table_files)}
 
 

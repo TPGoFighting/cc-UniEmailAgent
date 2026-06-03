@@ -285,6 +285,14 @@ class ClaudeAgent:
                 if proc.returncode != 0:
                     err = getattr(self, "_last_stderr", "")
                     logger.warning(f"claude 进程退出码 {proc.returncode}: {err[-300:]}")
+                    # 将错误信息注入队列，让 async generator 产出 error 消息
+                    try:
+                        queue.put_nowait({
+                            "_type": "error",
+                            "message": f"Claude Code 进程异常退出（退出码 {proc.returncode}）：{err[-300:]}" if err else f"Claude Code 进程异常退出（退出码 {proc.returncode}）"
+                        })
+                    except asyncio.QueueFull:
+                        pass
             except Exception as e:
                 logger.error(f"子进程线程异常: {e}")
             finally:
@@ -361,9 +369,12 @@ class ClaudeAgent:
                 elif msg_type == "result":
                     has_output = True
                     if parsed.get("is_error"):
+                        err_text = parsed.get("_text", "").strip()
+                        if not err_text:
+                            err_text = self._last_stderr[-500:] if hasattr(self, "_last_stderr") and self._last_stderr else "Claude Code 执行出错（无详细信息）"
                         yield {
                             "type": "error",
-                            "message": parsed.get("_text", "Claude Code 执行出错"),
+                            "message": err_text,
                             "timestamp": self._timestamp(),
                         }
                     else:
@@ -392,6 +403,13 @@ class ClaudeAgent:
                         if should_stop:
                             logger.info("[SUBDEBUG] 达到最大步数，停止处理")
                             break
+                    elif msg["_type"] == "error":
+                        # 线程路径传递的进程异常退出错误
+                        yield {
+                            "type": "error",
+                            "message": msg.get("message", "Claude Code 进程异常退出"),
+                            "timestamp": self._timestamp(),
+                        }
                     elif msg["_type"] == "done":
                         logger.info("[SUBDEBUG] 收到线程完成信号")
                         break
@@ -464,7 +482,7 @@ class ClaudeAgent:
         if not pushed:
             logger.info("Agent 未使用 [FILES] 声明，回退到 Write 工具追踪")
             for fp in tracked_files:
-                if fp.suffix.lower() not in (".csv", ".xlsx"):
+                if fp.suffix.lower() != ".csv":
                     continue
                 if fp.name.startswith(".") or fp.suffix == ".tmp":
                     continue
@@ -609,8 +627,7 @@ class ClaudeAgent:
         2. 只认 mtime > after_timestamp 的文件（杜绝旧残留）
         3. 按大学名称匹配度 + 数据行数评分，选取最佳
         """
-        from agent.exporter import export_all, _BASE_OUTPUT_DIR
-        from agent.cleaner import clean_records
+        from agent.exporter import _BASE_OUTPUT_DIR
         import csv as _csv
         import re as _re
 
@@ -708,20 +725,6 @@ class ClaudeAgent:
                 "url": csv_url,
                 "timestamp": self._timestamp(),
             })
-
-            # 检查同名的 XLSX 文件是否已存在
-            xlsx_path = csv_path.with_suffix(".xlsx")
-            if xlsx_path.exists() and xlsx_path.stat().st_size > 0:
-                xlsx_name = xlsx_path.name
-                # XLSX URL 与 CSV 使用相同的前缀路径
-                xlsx_url = csv_url.rsplit("/", 1)[0] + "/" + xlsx_name
-                results.append({
-                    "type": "download",
-                    "message": f"XLSX: {xlsx_name}",
-                    "filename": xlsx_name,
-                    "url": xlsx_url,
-                    "timestamp": self._timestamp(),
-                })
 
             logger.info(f"推送下载: {csv_name} (行数={score_val[1]})")
 

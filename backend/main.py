@@ -636,6 +636,52 @@ async def clean_university_tables_route(name: str):
         raise HTTPException(status_code=400, detail=f"清洗失败: {exc}")
 
 
+@app.post("/api/universities/{name}/export")
+async def export_university_table(name: str, body: dict):
+    """将高校表格数据导出为指定格式，返回下载 URL。
+
+    body 示例: {"task_id": "...", "file": "...", "formats": ["csv", "xlsx", "md", "html", "pdf", "docx"]}
+    """
+    from agent.exporter import export_all, _BASE_OUTPUT_DIR, _build_rows
+    from agent.universities import resolve_table_path, _read_csv, _read_xlsx
+
+    path = resolve_table_path(body.get("task_id", ""), body.get("file", ""))
+    if path is None or name not in path.name:
+        raise HTTPException(status_code=404, detail="table file not found")
+
+    formats = body.get("formats", ["xlsx"])
+    # 读取表格数据
+    if path.suffix.lower() == ".csv":
+        _, rows = _read_csv(path)
+    elif path.suffix.lower() == ".xlsx":
+        _, rows = _read_xlsx(path)
+    else:
+        raise HTTPException(status_code=400, detail="unsupported file format")
+
+    # 转换 rows 为 export_all 需要的格式
+    data = []
+    for r in rows:
+        data.append({
+            "name": r.get("姓名", "") or r.get("name", ""),
+            "email": r.get("邮箱", "") or r.get("email", ""),
+            "department": r.get("学院", "") or r.get("department", ""),
+            "title": r.get("职称", "") or r.get("title", ""),
+            "url": r.get("主页链接", "") or r.get("url", ""),
+        })
+
+    # 导出到独立目录 __export__/{name}_{ts}/
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    export_task_id = f"__export__/{name}_{ts}"
+    result = export_all(data, name, export_task_id, formats=formats)
+
+    download_urls = {}
+    for fmt, filename in result.items():
+        download_urls[fmt] = f"/api/download/{export_task_id}/{filename}"
+
+    return {"ok": True, "name": name, "files": download_urls}
+
+
 @app.post("/api/smtp/detect")
 async def smtp_detect(req: SmtpDetectRequest):
     return detect_smtp_provider(req.email)
@@ -1204,6 +1250,9 @@ async def agent_logs(ws: WebSocket, task_id: str):
         downloads: list[dict] = []
 
         had_error = False
+        # 聚合 text 消息（流式 token 先攒起来，done/error 时一次性写入历史）
+        text_buffer: list[str] = []
+        text_buffer_ts = ""  # 第一条 text 的时间戳
         async for log in agent.execute(
             prompt,
             task_id,
@@ -1221,16 +1270,13 @@ async def agent_logs(ws: WebSocket, task_id: str):
             if msg_type == "text":
                 text = log.get("message", "") or ""
                 if text:
+                    if not text_buffer:
+                        text_buffer_ts = log.get("timestamp", "")
+                    text_buffer.append(text)
                     last_agent_line = text
                     log_collector.append(text)
                 logger.info("task %s text: %s", task_id, text[:500])
-                # 保存到历史并转发 WS
-                history.add_message(task_id, {
-                    "id": f"text-{task_id[:8]}-{log.get('timestamp', '')}-{msg_seq}",
-                    "role": "agent",
-                    "content": text,
-                    "timestamp": log.get("timestamp", ""),
-                })
+                # 流式 token 先缓冲，不立即写入历史；仅转发 WS 给前端实时显示
                 await ws.send_text(json.dumps(log, ensure_ascii=False))
                 continue
             if msg_type == "download":
@@ -1259,9 +1305,29 @@ async def agent_logs(ws: WebSocket, task_id: str):
                 continue
             if msg_type == "done":
                 last_agent_line = log.get("message", "Agent 任务执行完毕")
+                # flush 文本缓冲区到历史
+                if text_buffer:
+                    aggregated = "".join(text_buffer)
+                    history.add_message(task_id, {
+                        "id": f"text-{task_id[:8]}-{text_buffer_ts}-agg",
+                        "role": "agent",
+                        "content": aggregated,
+                        "timestamp": text_buffer_ts,
+                    })
+                    text_buffer.clear()
                 continue
             if msg_type == "error":
                 had_error = True
+                # 错误的 text 内容也要 flush，不丢失上下文
+                if text_buffer:
+                    aggregated = "".join(text_buffer)
+                    history.add_message(task_id, {
+                        "id": f"text-{task_id[:8]}-{text_buffer_ts}-agg",
+                        "role": "agent",
+                        "content": aggregated,
+                        "timestamp": text_buffer_ts,
+                    })
+                    text_buffer.clear()
             role_map = {"log": "log", "download": "download", "error": "agent", "done": "agent", "text": "text"}
             # 先写历史再发 WS，防止刷新时消息丢失
             history.add_message(task_id, {
@@ -1273,6 +1339,17 @@ async def agent_logs(ws: WebSocket, task_id: str):
                 "url": log.get("url", ""),
             })
             await ws.send_text(json.dumps(log, ensure_ascii=False))
+
+        # Agent 流结束，flush 剩余的 text_buffer
+        if text_buffer:
+            aggregated = "".join(text_buffer)
+            history.add_message(task_id, {
+                "id": f"text-{task_id[:8]}-{text_buffer_ts}-agg",
+                "role": "agent",
+                "content": aggregated,
+                "timestamp": text_buffer_ts,
+            })
+            text_buffer.clear()
 
         progress_stop.set()
         if progress_task:

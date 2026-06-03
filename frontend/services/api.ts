@@ -118,5 +118,10 @@ export const api = {
   getActiveAgents: () => request<{ active_tasks: Array<{ task_id: string; title: string; started_at: string }> }>(`${BACKEND_URL}/api/agent/active`),
   terminateAgent: (taskId: string) => request<{ ok: boolean; message: string }>(`${BACKEND_URL}/api/agent/terminate`, { method: "POST", body: JSON.stringify({ task_id: taskId }) }),
   classifyTask: (message: string) => request<{ is_crawl: boolean }>(`${BACKEND_URL}/api/classify`, { method: "POST", body: JSON.stringify({ message }) }),
-  cleanUniversityTables: (name: string) => request<{ ok: boolean; name: string; stats?: { total_before: number; total_after: number; deduped: number; bad_name: number; admin_removed: number }; files?: Array<{ filename: string; before: number; after: number }>; error?: string }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/clean`, { method: "POST" }),
+  // ── 高校表格导出 ──
+  exportUniversityTable: (name: string, task_id: string, file: string, formats: string[]) =>
+    request<{ ok: boolean; files: Record<string, string> }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/export`, {
+      method: "POST",
+      body: JSON.stringify({ task_id, file, formats }),
+    }),
 };

@@ -57,6 +57,7 @@ export interface University {
   is_211: boolean;
   is_double_first_class: boolean;
   tags: string[];
+  has_data: boolean;
   records: {
     file_count: number;
     table_count: number;
