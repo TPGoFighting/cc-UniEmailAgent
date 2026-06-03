@@ -156,6 +156,168 @@ class ClaudeAgent:
                     "timestamp": self._timestamp(),
                 }
 
+    async def execute_query(
+        self,
+        message: str,
+        task_id: str,
+        task_output_dir: str = "",
+    ) -> AsyncGenerator[dict, None]:
+        """处理简单问答意图：读取当前任务输出文件，用 LLM 做统计分析后回答。
+
+        绝不触发爬虫代码，只读已有文件进行分析。无 LLM 时回退本地统计。
+        """
+        from agent.exporter import _BASE_OUTPUT_DIR
+        import csv as _csv
+
+        output_dir = Path(task_output_dir) if task_output_dir else _BASE_OUTPUT_DIR / task_id
+
+        # ── 扫描当前任务目录下的数据文件 ──
+        data_files: list[Path] = []
+        if output_dir.exists():
+            for f in output_dir.iterdir():
+                if f.suffix.lower() in (".csv", ".xlsx") and f.stat().st_size > 100:
+                    data_files.append(f)
+
+        if not data_files:
+            yield {
+                "type": "text",
+                "message": "当前任务还没有生成数据文件，请先执行爬取任务后再查询。",
+                "timestamp": self._timestamp(),
+            }
+            yield {"type": "done", "message": "无数据可分析", "timestamp": self._timestamp()}
+            return
+
+        # ── 读取文件内容做分析 ──
+        file_stats: list[dict] = []
+        all_rows: list[dict] = []
+        for fp in sorted(data_files):
+            rows = []
+            if fp.suffix.lower() == ".csv":
+                try:
+                    with open(fp, "r", encoding="utf-8-sig", errors="replace") as f:
+                        reader = _csv.DictReader(f)
+                        for row in reader:
+                            rows.append(row)
+                except Exception:
+                    pass
+            elif fp.suffix.lower() == ".xlsx":
+                try:
+                    import openpyxl
+                    wb = openpyxl.load_workbook(fp, read_only=True)
+                    ws = wb.active
+                    headers = [str(c.value or "") for c in next(ws.iter_rows())]
+                    for row in ws.iter_rows(values_only=True):
+                        rows.append(dict(zip(headers, [str(v or "") for v in row])))
+                    wb.close()
+                except Exception:
+                    pass
+
+            # 统计
+            total = len(rows)
+            has_email = sum(1 for r in rows if "@" in (r.get("邮箱", "") or r.get("email", "")))
+            dept_col = "学院" if "学院" in (rows[0] if rows else {}) else "department"
+            dept_counts: dict[str, int] = {}
+            for r in rows:
+                d = r.get(dept_col, "未知").strip() or "未知"
+                dept_counts[d] = dept_counts.get(d, 0) + 1
+
+            file_stats.append({
+                "file": fp.name,
+                "total": total,
+                "with_email": has_email,
+                "email_rate": f"{has_email / total * 100:.1f}%" if total > 0 else "0%",
+                "departments": dept_counts,
+            })
+            all_rows.extend(rows)
+
+        # ── 尝试用 LLM 生成分析回答 ──
+        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        if api_key:
+            answer = await self._query_llm_analysis(message, file_stats, api_key)
+            if answer:
+                yield {"type": "text", "message": answer, "timestamp": self._timestamp()}
+                yield {"type": "done", "message": "数据分析完毕", "timestamp": self._timestamp()}
+                return
+
+        # ── 回退：本地统计分析 ──
+        answer = self._local_analysis(message, file_stats)
+        yield {"type": "text", "message": answer, "timestamp": self._timestamp()}
+        yield {"type": "done", "message": "数据分析完毕", "timestamp": self._timestamp()}
+
+    async def _query_llm_analysis(
+        self, question: str, file_stats: list[dict], api_key: str
+    ) -> str | None:
+        """调用 LLM 分析文件数据并回答用户问题。"""
+        try:
+            import json as _json
+            from openai import AsyncOpenAI
+
+            if os.environ.get("DEEPSEEK_API_KEY"):
+                client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+                model = "deepseek-chat"
+            elif os.environ.get("OPENAI_API_KEY"):
+                client = AsyncOpenAI(
+                    api_key=api_key,
+                    base_url=os.environ.get("OPENAI_BASE_URL") or None,
+                )
+                model = os.environ.get("OPENAI_API_MODEL") or "gpt-4o-mini"
+            else:
+                # Anthropic - use httpx directly to avoid dependency
+                import httpx
+                stats_summary = _json.dumps(file_stats, ensure_ascii=False, indent=2)
+                headers = {
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                }
+                data = {
+                    "model": os.environ.get("ANTHROPIC_API_MODEL") or "claude-sonnet-4-6",
+                    "max_tokens": 800,
+                    "messages": [
+                        {"role": "user", "content": f"根据以下文件统计数据回答用户问题。\n\n## 统计数据\n{stats_summary}\n\n## 用户问题\n{question}\n\n请用中文简洁回答，使用 Markdown 格式。直接给出分析结论，不要开场白。"},
+                    ],
+                }
+                base_url = os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+                async with httpx.AsyncClient(timeout=30) as c:
+                    r = await c.post(f"{base_url.rstrip('/')}/v1/messages", headers=headers, json=data)
+                    if r.status_code == 200:
+                        return r.json()["content"][0]["text"]
+                return None
+
+            stats_summary = _json.dumps(file_stats, ensure_ascii=False, indent=2)
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "你是一个数据分析助手。根据文件统计数据回答用户问题。用中文简洁回答，使用 Markdown。直接给出分析结论。"},
+                    {"role": "user", "content": f"## 当前任务文件统计数据\n{stats_summary}\n\n## 用户问题\n{question}"},
+                ],
+                max_tokens=800,
+                temperature=0.3,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.warning(f"LLM 分析失败，回退本地统计: {e}")
+            return None
+
+    def _local_analysis(self, question: str, file_stats: list[dict]) -> str:
+        """本地统计分析（无 LLM 时的兜底）。"""
+        lines = ["## 📊 当前任务数据统计\n"]
+        for fs in file_stats:
+            lines.append(f"### {fs['file']}")
+            lines.append(f"- 总记录数: **{fs['total']}**")
+            lines.append(f"- 有邮箱: **{fs['with_email']}**（{fs['email_rate']}）")
+            lines.append(f"- 无邮箱: **{fs['total'] - fs['with_email']}**")
+            lines.append("")
+            lines.append(f"#### 各学院分布")
+            lines.append("| 学院 | 人数 |")
+            lines.append("|------|------|")
+            for dept, count in sorted(fs["departments"].items(), key=lambda x: -x[1]):
+                lines.append(f"| {dept} | {count} |")
+            lines.append("")
+
+        lines.append("> 💡 配置 `DEEPSEEK_API_KEY` 可启用 AI 智能分析回答。")
+        return "\n".join(lines)
+
     async def _is_crawl_task(self, message: str) -> bool:
         """使用 DeepSeek 大模型对用户意图进行精准分类，判定是否为爬取/数据采集类任务。
         

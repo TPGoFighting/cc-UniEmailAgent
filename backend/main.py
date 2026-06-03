@@ -22,6 +22,13 @@ from pydantic import BaseModel
 from agent.claude_agent import ClaudeAgent
 from agent.exporter import get_task_dir, cleanup_task_dir, _BASE_OUTPUT_DIR
 from agent.history import history
+from agent.intent_router import classify_intent, IntentType, IntentResult
+from agent.skill_manager import (
+    load_skills_prompt,
+    reflect_and_save,
+    get_data_schema_prompt,
+    get_task_isolation_prompt,
+)
 from agent.universities import (
     build_university_response,
     get_university_records,
@@ -262,9 +269,15 @@ async def create_task(req: ChatRequest):
 
 @app.post("/api/classify")
 async def classify_task(req: ClassifyRequest):
-    """统一的任务分类端点：前端不再自行实现 isCrawlTask，统一走后端。"""
-    is_crawl = await agent._is_crawl_task(req.message)
-    return {"is_crawl": is_crawl}
+    """统一的任务分类端点：返回完整的三路意图分类结果。"""
+    result = await classify_intent(req.message, has_existing_data=False, existing_university="")
+    return {
+        "is_crawl": result.is_crawl,
+        "intent": result.intent.value,
+        "university": result.university_name,
+        "departments": result.target_departments,
+        "reason": result.reason,
+    }
 
 
 MIME_MAP = {
@@ -336,6 +349,19 @@ async def download_file(filename: str):
 
 
 SKILLS_DIR = Path(__file__).parent / "skills"
+
+
+async def _post_task_reflection(task_id: str, task_data: dict, university_name: str) -> None:
+    """任务完成后的反思钩子：异步执行，不影响主流程。"""
+    try:
+        messages = task_data.get("messages", [])
+        result = await reflect_and_save(task_id, university_name, messages)
+        if result:
+            logger.info(f"[Reflection] task {task_id[:8]} 新经验已写入: {result}")
+        else:
+            logger.info(f"[Reflection] task {task_id[:8]} 无新经验需要记录")
+    except Exception as e:
+        logger.warning(f"[Reflection] task {task_id[:8]} 反思失败（不影响任务结果）: {e}")
 
 
 GLOBAL_SKILLS_FILE = SKILLS_DIR / "global_crawling_rules.md"
@@ -1230,17 +1256,139 @@ async def agent_logs(ws: WebSocket, task_id: str):
                 "content": user_message,
             })
 
-        # 根据会话中的首条用户消息内容决定整个会话的类型（避免追问被误判为爬取任务）
-        first_user_content = user_message
-        for m in task_data.get("messages", []):
-            if m.get("role") == "user":
-                first_user_content = m.get("content", "")
-                break
+        # ── 智能意图路由（三路分类） ──
+        # 判断当前任务是否已有数据
+        has_data = False
+        existing_uni = ""
+        if task_id:
+            output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+            if output_dir.exists():
+                csv_files = list(output_dir.glob("*.csv")) + list(output_dir.glob("*.xlsx"))
+                has_data = any(f.stat().st_size > 200 for f in csv_files)
+            # 从历史消息中提取大学名称
+            for m in task_data.get("messages", []):
+                content = m.get("content", "")
+                uni_match = re.search(r"([一-鿿]{2,6}(?:大学|学院))", content)
+                if uni_match:
+                    existing_uni = uni_match.group(1)
+                    break
 
-        is_crawl = await agent._is_crawl_task(first_user_content)
-        # 对追问重新分类：首条是爬取不代表本条也是（如"每个学院多少人"应该走问答）
+        intent_result = await classify_intent(
+            user_message,
+            has_existing_data=has_data,
+            existing_university=existing_uni,
+        )
+        logger.info(
+            f"[IntentRouter] task {task_id[:8]}: intent={intent_result.intent.value} "
+            f"uni={intent_result.university_name} reason={intent_result.reason}"
+        )
+
+        # ── 按意图分发 ──
+        if intent_result.intent == IntentType.SIMPLE_QUERY:
+            # 简单问答：直接读文件分析，不触发爬虫
+            progress_stop = asyncio.Event()
+            progress_task = None
+            log_collector: list[str] = []
+            last_agent_line = ""
+            downloads: list[dict] = []
+            had_error = False
+            text_buffer: list[str] = []
+            text_buffer_ts = ""
+
+            output_dir_str = str(output_dir) if task_id else ""
+            async for log in agent.execute_query(user_message, task_id, output_dir_str):
+                msg_seq += 1
+                msg_type = log.get("type", "agent")
+                if msg_type == "text":
+                    text = log.get("message", "") or ""
+                    if text and not text_buffer:
+                        text_buffer_ts = log.get("timestamp", "")
+                    if text:
+                        text_buffer.append(text)
+                    await ws.send_text(json.dumps(log, ensure_ascii=False))
+                    continue
+                if msg_type == "done":
+                    if text_buffer:
+                        aggregated = "".join(text_buffer)
+                        history.add_message(task_id, {
+                            "id": f"text-{task_id[:8]}-{text_buffer_ts}-agg",
+                            "role": "agent",
+                            "content": aggregated,
+                            "timestamp": text_buffer_ts,
+                        })
+                        text_buffer.clear()
+                    continue
+                if msg_type == "error":
+                    had_error = True
+                    if text_buffer:
+                        aggregated = "".join(text_buffer)
+                        history.add_message(task_id, {
+                            "id": f"text-{task_id[:8]}-{text_buffer_ts}-agg",
+                            "role": "agent",
+                            "content": aggregated,
+                            "timestamp": text_buffer_ts,
+                        })
+                        text_buffer.clear()
+
+                history.add_message(task_id, {
+                    "id": f"{msg_type}-{task_id[:8]}-{log.get('timestamp', '')}-{msg_seq}",
+                    "role": "agent",
+                    "content": log.get("message", ""),
+                    "timestamp": log.get("timestamp", ""),
+                })
+                await ws.send_text(json.dumps(log, ensure_ascii=False))
+
+            # flush 剩余 buffer
+            if text_buffer:
+                aggregated = "".join(text_buffer)
+                history.add_message(task_id, {
+                    "id": f"text-{task_id[:8]}-{text_buffer_ts}-agg",
+                    "role": "agent",
+                    "content": aggregated,
+                    "timestamp": text_buffer_ts,
+                })
+                text_buffer.clear()
+
+            ts = datetime.now().strftime("%H:%M:%S")
+            await ws.send_text(json.dumps({"type": "done", "message": "分析完毕", "timestamp": ts}, ensure_ascii=False))
+            history.update_status(task_id, "completed")
+            await ws.close()
+            return
+
+        # ── NEW_CRAWL / INCREMENTAL_CRAWL 共用执行路径 ──
+        is_crawl = True
+        is_incremental = intent_result.intent == IntentType.INCREMENTAL_CRAWL
+
+        # 构建爬取提示词：技能注入 + 数据规范 + 任务隔离
+        skill_prompt = load_skills_prompt(intent_result.university_name)
+        schema_prompt = get_data_schema_prompt()
+        inherited_tid = task_id if is_incremental else ""  # 增量任务可读取自己历史目录
+        isolation_prompt = get_task_isolation_prompt(task_id, inherited_tid)
+
+        # 注入到 prompt 前面
+        injection_parts = []
+        if skill_prompt:
+            injection_parts.append(skill_prompt)
+        injection_parts.append(schema_prompt)
+        injection_parts.append(isolation_prompt)
+        if is_incremental:
+            injection_parts.append(
+                "## 🔄 增量爬取说明\n\n"
+                "这是一个**增量补充任务**。请先读取当前任务的已有数据文件，"
+                "识别缺失或不达标的学院/教师记录，然后只针对这些缺口进行补充爬取。\n"
+                f"{'阈值提示: ' + intent_result.threshold_hint if intent_result.threshold_hint else ''}\n"
+                "不要覆盖已有的正确数据，只补充缺失部分。完成后去重合并输出完整文件。\n"
+            )
+        skill_injection = "\n\n".join(injection_parts)
+
+        # 将技能注入插入到 prompt 构建之前
         if is_followup:
-            is_crawl = await agent._is_crawl_task(user_message)
+            # 追问场景：在已有上下文 prompt 前插入技能注入
+            prompt = skill_injection + "\n\n" + prompt
+        else:
+            # 新任务：技能注入放在 context prompt 之前
+            prompt = skill_injection + "\n\n" + prompt
+
         progress_stop = asyncio.Event()
         progress_task = None
         log_collector: list[str] = []  # 存放 agent 日志，供 LLM 进度生成使用
@@ -1375,6 +1523,11 @@ async def agent_logs(ws: WebSocket, task_id: str):
         final_task = history.get(task_id)
         if final_task:
             _generate_skills(task_id, final_task)
+            # ── 后置反思：爬取/增量任务完成后，LLM 分析日志提取新经验 ──
+            if is_crawl and not had_error:
+                asyncio.create_task(
+                    _post_task_reflection(task_id, final_task, intent_result.university_name)
+                )
 
         await ws.close()
 
