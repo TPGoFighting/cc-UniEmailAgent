@@ -1,22 +1,24 @@
-"""OpenClaw Agent — 通过 OpenClaw CLI 执行任务（DeepSeek API 驱动）"""
+"""OpenClaw Agent — 通过 OpenClaw CLI 执行任务，从 session 文件提取结果"""
 
 import asyncio
 import json
 import logging
 import os
 import subprocess
-import tempfile
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator
+import time
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
+SESSIONS_PATH = Path("/root/.openclaw/agents/main/sessions/sessions.json")
+OC_STATE_DIR = Path("/root/.openclaw")
+
 
 class OpenClawAgent:
-    """使用 OpenClaw agent CLI 执行任务，支持 DeepSeek API。"""
+    """使用 OpenClaw agent CLI 执行任务，从 session 文件提取结果。"""
 
     def __init__(self):
         self.active_procs: dict[str, subprocess.Popen] = {}
@@ -34,33 +36,63 @@ class OpenClawAgent:
             return True
         return False
 
+    def _get_last_session_text(self) -> str:
+        """从 OpenClaw sessions.json 读取最近一次 assistant 回复。"""
+        try:
+            if not SESSIONS_PATH.exists():
+                return ""
+            data = json.loads(SESSIONS_PATH.read_text(encoding="utf-8"))
+            # 找到 session key 包含 "uniemail-" 的最新 session
+            target_sessions = []
+            for key, session in data.items():
+                if "uniemail-" in key or key.startswith("session:"):
+                    msgs = session.get("messages", [])
+                    if msgs:
+                        target_sessions.append((key, msgs))
+            if not target_sessions:
+                return ""
+            # 取最后一个 session 的最后一条 assistant 消息
+            _, msgs = target_sessions[-1]
+            for m in reversed(msgs):
+                if m.get("role") == "assistant":
+                    content = m.get("content", "")
+                    if isinstance(content, list):
+                        texts = [c.get("text", "") for c in content if c.get("type") == "text"]
+                        return "\n".join(texts)
+                    return str(content)
+            return ""
+        except Exception as e:
+            logger.warning(f"读取 OpenClaw session 失败: {e}")
+            return ""
+
     async def execute(
         self,
         message: str,
         task_id: str = "",
         **kwargs,
     ) -> AsyncGenerator[dict, None]:
-        """执行任务：调用 OpenClaw agent CLI，解析 JSON 输出。"""
+        """执行任务：调用 OpenClaw agent CLI，从 session 文件读结果。"""
         self._stopped_tasks.discard(task_id)
 
-        # 暂不支持非爬取场景
-        yield {"type": "log", "message": "🚀 准备通过 OpenClaw 执行...", "timestamp": self._timestamp()}
+        yield {"type": "log", "message": "🚀 通过 OpenClaw 执行...", "timestamp": self._timestamp()}
 
-        # 写 prompt 到临时文件（避免命令行长度限制）
+        session_key = f"uniemail-{task_id[:8]}" if task_id else "uniemail-default"
+
+        # 写 prompt 到临时文件
         prompt_file = f"/tmp/oc_prompt_{task_id[:8]}.txt"
         with open(prompt_file, "w", encoding="utf-8") as f:
             f.write(message)
 
-        # 写包装脚本（绕过 su 引号嵌套问题）
+        # 写包装脚本
         script_file = f"/tmp/oc_run_{task_id[:8]}.sh"
-        session_key = f"uniemail-{task_id[:8]}"
         with open(script_file, "w") as f:
             f.write(f"""#!/bin/bash
-openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_key}
+export HOME=/root
+openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_key} >/dev/null 2>&1
 """)
         os.chmod(script_file, 0o755)
 
-        cmd = ["su", "-", "uniemail", "-c", script_file]
+        cmd = [script_file]
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -70,27 +102,16 @@ openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_k
             )
             self.active_procs[task_id] = proc
 
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+            await asyncio.wait_for(proc.wait(), timeout=600)
             self.active_procs.pop(task_id, None)
 
-            if proc.returncode != 0:
-                err_text = stderr.decode("utf-8", errors="replace")[-500:]
-                logger.warning(f"OpenClaw exit code {proc.returncode}: {err_text}")
-                yield {
-                    "type": "error",
-                    "message": f"OpenClaw 执行失败（退出码 {proc.returncode}）",
-                    "timestamp": self._timestamp(),
-                }
-                return
-
-            # 解析 JSON 输出
-            output = stdout.decode("utf-8", errors="replace")
-            data = json.loads(output)
-            completion = data.get("completion", {})
-            result_text = completion.get("text", "") or completion.get("message", "")
+            # 从 session 文件读取回复
+            result_text = self._get_last_session_text()
 
             if result_text:
                 yield {"type": "text", "message": result_text, "timestamp": self._timestamp()}
+            else:
+                yield {"type": "log", "message": "OpenClaw 执行完毕（无文本回复）", "timestamp": self._timestamp()}
 
             yield {"type": "done", "message": "任务执行完毕", "timestamp": self._timestamp()}
 
@@ -101,8 +122,7 @@ openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_k
             logger.error(f"OpenClaw execute error: {e}")
             yield {"type": "error", "message": f"执行异常: {str(e)[:200]}", "timestamp": self._timestamp()}
         finally:
-            # 清理临时文件
-            for f in [prompt_file, f"/tmp/oc_stderr_{task_id[:8]}.txt"]:
+            for f in [prompt_file, script_file]:
                 try:
                     os.remove(f)
                 except OSError:

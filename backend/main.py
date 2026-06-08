@@ -69,22 +69,22 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("agent.claude_agent").setLevel(logging.WARNING)
 
-# Agent 选择策略（优先级：GRAPH_AGENT > Hermes > Claude）
-# 可通过环境变量 GRAPH_AGENT_ENABLED=true 启用 LangGraph 状态机模式
+# Agent 选择策略（优先级：OpenClaw > GraphAgent > Hermes > Claude）
 try:
     import shutil
-    if os.environ.get("GRAPH_AGENT_ENABLED", "").lower() in ("true", "1", "yes"):
-        agent = GraphAgent()
-        logger.info("使用 GraphAgent（LangGraph 状态机）")
-    elif shutil.which("openclaw"):
+    if shutil.which("openclaw"):
+        from agent.openclaw_agent import OpenClawAgent
         agent = OpenClawAgent()
         logger.info("使用 OpenClaw Agent（DeepSeek 引擎）")
+    elif os.environ.get("GRAPH_AGENT_ENABLED", "").lower() in ("true", "1", "yes"):
+        agent = GraphAgent()
+        logger.info("使用 GraphAgent（LangGraph 状态机）")
     elif shutil.which("hermes"):
         agent = HermesOrchestrator()
         logger.info("使用 Hermes Agent（智能引擎）")
     else:
         agent = ClaudeAgent()
-        logger.info("Hermes 未安装，使用 Claude Agent")
+        logger.info("使用 Claude Agent（回退）")
 except Exception:
     agent = ClaudeAgent()
     logger.info("使用 Claude Agent（回退）")
