@@ -105,7 +105,10 @@ class ClaudeAgent:
         try:
             span_process = start_span("claude_process", {"task_id": task_id, "phase": "execute"})
             try:
-                async for log in self._run_claude(message, task_id, is_continuation):
+                # 直接使用 PlaywrightAgent 执行爬取（跳过 Claude CLI，使用 DeepSeek API）
+                from agent.playwright_agent import PlaywrightAgent
+                pw = PlaywrightAgent()
+                async for log in pw.execute(message, task_id):
                     yield log
             except Exception:
                 end_span(span_process, error="执行异常")
@@ -118,33 +121,12 @@ class ClaudeAgent:
             _claude_error = f"{type(e).__name__}: {str(e)[:200]}"
             import traceback as _tb
             tb_lines = _tb.format_exc().replace("\n", " | ")
-            logger.warning(f"V2 Claude Code 执行失败: {_claude_error} || TRACEBACK: {tb_lines}")
-
-            # 仅爬取任务才回退到 Playwright，追问/普通问答不回退
-            if is_crawl_session and not is_continuation:
-                yield {
-                    "type": "log",
-                    "message": f"V2 Claude Code 不可用（{_claude_error}），切换到内置浏览器 Agent",
-                    "timestamp": self._timestamp(),
-                }
-                from agent.playwright_agent import PlaywrightAgent
-                fallback = PlaywrightAgent()
-                try:
-                    async for log in fallback.execute(message, task_id):
-                        yield log
-                except Exception as pe:
-                    logger.error(f"V2 Playwright 回退也失败: {type(pe).__name__}: {str(pe)[:200]}")
-                    yield {
-                        "type": "error",
-                        "message": f"V2 Playwright 浏览器 Agent 也执行失败: {type(pe).__name__}: {str(pe)[:200]}",
-                        "timestamp": self._timestamp(),
-                    }
-            else:
-                yield {
-                    "type": "error",
-                    "message": f"V2 Claude Code 执行失败（{_claude_error}）。这不是爬取任务，请检查 claude CLI 是否正常工作。",
-                    "timestamp": self._timestamp(),
-                }
+            logger.warning(f"PlaywrightAgent 执行失败: {_claude_error} || TRACEBACK: {tb_lines}")
+            yield {
+                "type": "error",
+                "message": f"浏览器 Agent 执行失败: {str(e)[:200]}",
+                "timestamp": self._timestamp(),
+            }
         finally:
             end_run(run_id, error=_claude_error)
 
@@ -772,26 +754,18 @@ class ClaudeAgent:
             cmd = [
                 "su", "-", "uniemail", "-c",
                 " ".join([
-                    "claude",
-                    "--print",
-                    "--output-format", "stream-json",
-                    "--verbose",
-                    "--no-session-persistence",
-                    "--permission-mode", "bypassPermissions",
-                    "--allowedTools", json.dumps(ALLOWED_TOOLS),
-                    "--max-budget-usd", "20.0",
+                    "openclaw",
+                    "agent", "--local",
+                    "--session-key", f"uniemail-{task_id[:8]}",
+                    "--json",
                 ])
             ]
         else:
             cmd = [
-                "claude",
-                "--print",
-                "--output-format", "stream-json",
-                "--verbose",
-                "--no-session-persistence",
-                "--permission-mode", "bypassPermissions",
-                "--allowedTools", json.dumps(ALLOWED_TOOLS),
-                "--max-budget-usd", "20.0",
+                "openclaw",
+                "agent", "--local",
+                "--session-key", f"uniemail-{task_id[:8]}",
+                "--json",
             ]
 
         env = os.environ.copy()
