@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertTriangle, AlertCircle, X } from "lucide-react";
+import { AlertTriangle, AlertCircle, X, Copy, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { ErrorUserData } from "@/lib/types";
 
@@ -23,14 +23,35 @@ const alertVariants = {
 
 interface ErrorAlertProps {
   errors: ErrorUserData[];
+  /** 可选：重试回调，传递后显示重试按钮 */
+  onRetry?: () => void;
 }
 
-export function ErrorAlert({ errors }: ErrorAlertProps) {
+export function ErrorAlert({ errors, onRetry }: ErrorAlertProps) {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const visible = errors.filter(
     (e, i) => !dismissedIds.has(`${e.timestamp}-${i}`)
   );
+
+  const handleCopy = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // fallback
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  };
 
   if (visible.length === 0) return null;
 
@@ -68,6 +89,29 @@ export function ErrorAlert({ errors }: ErrorAlertProps) {
                 >
                   {err.message}
                 </p>
+                {/* 操作按钮 */}
+                <div className="mt-2 flex items-center gap-1.5">
+                  <button
+                    onClick={() => handleCopy(err.message, key)}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors hover:bg-white/40 dark:hover:bg-white/5"
+                    style={{ color: isError ? "rgb(239 68 68)" : "rgb(217 119 6)" }}
+                  >
+                    {copiedId === key ? (
+                      <>已复制</>
+                    ) : (
+                      <><Copy className="size-3" /> 复制</>
+                    )}
+                  </button>
+                  {onRetry && (
+                    <button
+                      onClick={onRetry}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors hover:bg-white/40 dark:hover:bg-white/5"
+                      style={{ color: "rgb(99 102 241)" }}
+                    >
+                      <RotateCcw className="size-3" /> 重试
+                    </button>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() =>

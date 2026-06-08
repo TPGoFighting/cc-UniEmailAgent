@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { Message, ComposerState, IntentResult, StageState, CollegeStage, TaskSummary, CrawlStageState, CrawlStatsData, CrawlSummaryData, ErrorUserData, QualityEvalData } from "@/lib/types";
 
 interface ChatStore {
@@ -86,9 +87,11 @@ interface ChatStore {
   clearLogs: (taskId: string) => void;
 }
 
-export const useChatStore = create<ChatStore>((set, get) => ({
-  currentMessages: [],
-  viewingTaskId: null,
+export const useChatStore = create<ChatStore>()(
+  persist(
+    (set, get) => ({
+      currentMessages: [],
+      viewingTaskId: null,
   taskMessages: {},
   runningTaskIds: [],
   composerStateMap: {},
@@ -306,4 +309,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const { [taskId]: _, ...rest } = s.logsMap;
       return { logsMap: rest };
     }),
-}));
+}),
+    {
+      name: "uniemail-chat",
+      partialize: (state) => ({
+        taskMessages: state.taskMessages,
+        runningTaskIds: state.runningTaskIds,
+        composerStateMap: state.composerStateMap,
+        intentMap: state.intentMap,
+        stageMap: state.stageMap,
+        summaryMap: state.summaryMap,
+        crawlStageMap: state.crawlStageMap,
+        crawlStatsMap: state.crawlStatsMap,
+        crawlSummaryMap: state.crawlSummaryMap,
+        crawlErrorsMap: state.crawlErrorsMap,
+        qualityEvalMap: state.qualityEvalMap,
+        traceUrlMap: state.traceUrlMap,
+        logsMap: state.logsMap,
+      }),
+    }
+  )
+);

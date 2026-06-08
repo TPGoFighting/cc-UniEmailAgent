@@ -1,9 +1,10 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Users, Mail, Building2, Clock, Download, FileText, AlertTriangle, ExternalLink } from "lucide-react";
+import { Check, Users, Mail, Building2, Clock, AlertTriangle, ExternalLink, ClipboardCopy } from "lucide-react";
+import { useState } from "react";
+import { FileCard } from "@/components/file-card";
 import { Button } from "@/components/ui/button";
-import { api } from "@/services/api";
 import type { CrawlSummaryData, TaskSummary, QualityEvalData } from "@/lib/types";
 
 interface TaskResultPanelProps {
@@ -39,6 +40,8 @@ function ScoreRing({ score }: { score: number }) {
 export function TaskResultPanel({ crawlSummary, taskSummary, qualityEval, traceUrl }: TaskResultPanelProps) {
   // Need at least one data source
   if (!crawlSummary && !taskSummary) return null;
+
+  const [copiedPreview, setCopiedPreview] = useState(false);
 
   const university = crawlSummary?.university || "";
   const totalTeachers = crawlSummary?.total_teachers ?? taskSummary?.total_teachers ?? 0;
@@ -151,7 +154,23 @@ export function TaskResultPanel({ crawlSummary, taskSummary, qualityEval, traceU
         {/* Preview rows */}
         {previewRows.length > 0 && (
           <div className="mb-4">
-            <div className="text-xs font-medium text-muted-foreground mb-2">数据预览</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-muted-foreground">数据预览</div>
+              <button
+                onClick={() => {
+                  const header = "姓名,邮箱,学院\n";
+                  const csv = header + previewRows.map(r => `"${r.name || ""}","${r.email || ""}","${r.department || ""}"`).join("\n");
+                  navigator.clipboard.writeText(csv).then(() => {
+                    setCopiedPreview(true);
+                    setTimeout(() => setCopiedPreview(false), 2000);
+                  }).catch(() => {});
+                }}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <ClipboardCopy className="size-3" />
+                {copiedPreview ? "已复制" : "复制为 CSV"}
+              </button>
+            </div>
             <div className="overflow-hidden rounded-xl border border-border/30">
               <table className="w-full text-left text-[11px]">
                 <thead>
@@ -175,25 +194,14 @@ export function TaskResultPanel({ crawlSummary, taskSummary, qualityEval, traceU
           </div>
         )}
 
-        {/* Download buttons */}
+        {/* Download buttons — 使用 FileCard */}
         {allFiles.length > 0 && (
           <div>
             <div className="text-xs font-medium text-muted-foreground mb-2">结果文件</div>
             <div className="flex flex-wrap gap-2">
-              {allFiles.map((f) => {
-                const ext = f.filename.split(".").pop()?.toLowerCase() || "";
-                const extLabel: Record<string, string> = {
-                  csv: "CSV", xlsx: "XLSX", md: "MD", html: "HTML", pdf: "PDF", docx: "DOCX",
-                };
-                return (
-                  <a key={f.filename} href={`${api.getBackendUrl()}${f.url}`} target="_blank" rel="noreferrer">
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs rounded-xl border-border/40 bg-card/50" type="button">
-                      <Download className="size-3" />
-                      {extLabel[ext] || ext.toUpperCase()}
-                    </Button>
-                  </a>
-                );
-              })}
+              {allFiles.map((f: { filename: string; url?: string; size?: number }) => (
+                <FileCard key={f.filename} file={{ filename: f.filename, url: f.url, size: f.size }} />
+              ))}
             </div>
           </div>
         )}

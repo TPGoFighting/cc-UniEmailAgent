@@ -56,7 +56,7 @@ export function ChatInput({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && (!e.shiftKey || e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       handleSend();
     }
@@ -179,7 +179,7 @@ export function ChatInput({
           )}
         </div>
         <p className="mt-2 text-center text-xs text-muted-foreground/40">
-          Enter 发送 · Shift+Enter 换行
+          Enter 发送 · Shift+Enter 换行 · Ctrl+Enter 发送
         </p>
       </div>
     </div>

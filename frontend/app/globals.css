@@ -122,6 +122,114 @@
   --sidebar-ring: #22D3EE;
 }
 
+/* ===== Theme: Dracula ===== */
+.dark.theme-dracula,
+.theme-dracula {
+  --background: #282A36;
+  --foreground: #F8F8F2;
+  --card: #21222C;
+  --card-foreground: #F8F8F2;
+  --popover: #21222C;
+  --popover-foreground: #F8F8F2;
+  --primary: #BD93F9;
+  --primary-foreground: #282A36;
+  --secondary: #44475A;
+  --secondary-foreground: #F8F8F2;
+  --muted: #21222C;
+  --muted-foreground: #6272A4;
+  --accent: #FF79C6;
+  --accent-foreground: #282A36;
+  --destructive: #FF5555;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.10);
+  --ring: #BD93F9;
+  --chart-1: #BD93F9;
+  --chart-2: #6272A4;
+  --chart-3: #44475A;
+  --chart-4: #21222C;
+  --chart-5: #282A36;
+  --sidebar: #21222C;
+  --sidebar-foreground: #F8F8F2;
+  --sidebar-primary: #BD93F9;
+  --sidebar-primary-foreground: #282A36;
+  --sidebar-accent: rgba(255, 255, 255, 0.04);
+  --sidebar-accent-foreground: #F8F8F2;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #BD93F9;
+}
+
+/* ===== Theme: Nord ===== */
+.dark.theme-nord,
+.theme-nord {
+  --background: #2E3440;
+  --foreground: #D8DEE9;
+  --card: #3B4252;
+  --card-foreground: #D8DEE9;
+  --popover: #3B4252;
+  --popover-foreground: #D8DEE9;
+  --primary: #88C0D0;
+  --primary-foreground: #2E3440;
+  --secondary: #434C5E;
+  --secondary-foreground: #D8DEE9;
+  --muted: #3B4252;
+  --muted-foreground: #81A1C1;
+  --accent: #B48EAD;
+  --accent-foreground: #2E3440;
+  --destructive: #BF616A;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #88C0D0;
+  --chart-1: #88C0D0;
+  --chart-2: #81A1C1;
+  --chart-3: #434C5E;
+  --chart-4: #3B4252;
+  --chart-5: #2E3440;
+  --sidebar: #3B4252;
+  --sidebar-foreground: #D8DEE9;
+  --sidebar-primary: #88C0D0;
+  --sidebar-primary-foreground: #2E3440;
+  --sidebar-accent: rgba(255, 255, 255, 0.04);
+  --sidebar-accent-foreground: #D8DEE9;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #88C0D0;
+}
+
+/* ===== Theme: Monokai ===== */
+.dark.theme-monokai,
+.theme-monokai {
+  --background: #272822;
+  --foreground: #F8F8F2;
+  --card: #1E1F1C;
+  --card-foreground: #F8F8F2;
+  --popover: #1E1F1C;
+  --popover-foreground: #F8F8F2;
+  --primary: #A6E22E;
+  --primary-foreground: #272822;
+  --secondary: #3E3D32;
+  --secondary-foreground: #F8F8F2;
+  --muted: #1E1F1C;
+  --muted-foreground: #75715E;
+  --accent: #FD971F;
+  --accent-foreground: #272822;
+  --destructive: #F92672;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.10);
+  --ring: #A6E22E;
+  --chart-1: #A6E22E;
+  --chart-2: #75715E;
+  --chart-3: #3E3D32;
+  --chart-4: #1E1F1C;
+  --chart-5: #272822;
+  --sidebar: #1E1F1C;
+  --sidebar-foreground: #F8F8F2;
+  --sidebar-primary: #A6E22E;
+  --sidebar-primary-foreground: #272822;
+  --sidebar-accent: rgba(255, 255, 255, 0.04);
+  --sidebar-accent-foreground: #F8F8F2;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #A6E22E;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -210,6 +318,11 @@
 
 /* ===== Animations ===== */
 
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -243,6 +356,10 @@
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+
+.animate-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
 }
 
 /* Animation utility classes */

@@ -6,10 +6,10 @@ import remarkGfm from "remark-gfm";
 import { User, Bot, Terminal, Download, Loader2, Bug, FileText } from "lucide-react";
 import type { Message } from "@/lib/types";
 import { MessageActions } from "@/components/message-actions";
-import { TypingIndicator } from "@/components/typing-indicator";
+import { ContextMenuMessage } from "@/components/context-menu-message";
 import { useAgentChat } from "@/hooks/use-agent-chat";
-import { api } from "@/services/api";
 import { ShikiHighlight } from "@/components/shiki-highlight";
+import { FileCard } from "@/components/file-card";
 
 const messageVariants = {
   initial: { opacity: 0, y: 8 },
@@ -37,7 +37,15 @@ export function ChatMessage({ message }: ChatMessageProps) {
       >
         <div className="flex max-w-[80%] items-start gap-3">
           <div className="min-w-0 rounded-2xl rounded-br-md bg-gradient-to-br from-primary to-primary/90 px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-[0_2px_8px_rgba(34,211,238,0.2)] dark:shadow-[0_2px_12px_rgba(34,211,238,0.15)] whitespace-pre-wrap">
-            {message.content}
+            <ContextMenuMessage
+              role="user"
+              content={message.content}
+              onCopy={() => copyMessage(message.content)}
+              onEdit={() => editMessage(message.id, message.content)}
+              onDelete={() => deleteMessage(message.id)}
+            >
+              {message.content}
+            </ContextMenuMessage>
           </div>
           <div className="flex shrink-0 items-center gap-1 self-end">
             <div className="opacity-0 transition-opacity duration-250 group-hover:opacity-100">
@@ -85,18 +93,6 @@ export function ChatMessage({ message }: ChatMessageProps) {
   }
 
   if (message.role === "download") {
-    const BACKEND_URL = api.getBackendUrl();
-    const downloadUrl = message.url
-      ? message.url.startsWith("http")
-        ? message.url
-        : `${BACKEND_URL}${message.url}`
-      : `${BACKEND_URL}/api/download/${message.filename || ""}`;
-
-    const ext = (message.filename || "").split(".").pop()?.toLowerCase() || "";
-    const extLabel: Record<string, string> = {
-      csv: "CSV", xlsx: "XLSX", md: "MD", html: "HTML", pdf: "PDF", docx: "DOCX",
-    };
-
     return (
       <motion.div
         variants={messageVariants}
@@ -104,25 +100,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
         animate="animate"
         className="py-2"
       >
-        <div className="flex items-center gap-3">
-          <div className="flex size-5 shrink-0 items-center justify-center rounded bg-primary/10">
-            <Download className="size-2.5 text-primary" />
-          </div>
-          <a
-            href={downloadUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-2xl border border-primary/20 bg-primary/[0.04] px-4 py-2.5 text-sm font-medium text-primary transition-all duration-250 hover:-translate-y-[0.5px] hover:bg-primary/[0.08] hover:border-primary/30 hover:shadow-[0_0_12px_rgba(34,211,238,0.1)]"
-            style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
-          >
-            <span className="shrink-0 rounded-lg bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">
-              {extLabel[ext] || ext.toUpperCase()}
-            </span>
-            <span>{message.content}</span>
-            <span className="hidden group-hover:inline text-xs text-primary/60">
-              ({message.filename})
-            </span>
-          </a>
+        <div className="ml-11">
+          <FileCard
+            file={{ filename: message.filename || message.content, url: message.url }}
+            label={message.content}
+          />
         </div>
       </motion.div>
     );
@@ -141,26 +123,34 @@ export function ChatMessage({ message }: ChatMessageProps) {
             <img src="/avatar.png" alt="Agent" className="size-full object-cover img-blend" />
           </div>
           <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-border/30 bg-card/50 px-5 py-3.5 backdrop-blur-sm">
-            <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code: function Code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code">) {
-                    const match = /language-(\w+)/.exec(className || "");
-                    const codeStr = String(children).replace(/\n$/, "");
-                    if (match) {
-                      return <ShikiHighlight code={codeStr} language={match[1]} />;
-                    }
-                    return (
-                      <code className="rounded-md bg-muted px-1 py-0.5 text-xs font-mono" {...props}>
-                        {children}
-                      </code>
-                    );
-                  },
-                }}
+            <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground"> 
+              <ContextMenuMessage
+                role="agent"
+                content={message.content}
+                onCopy={() => copyMessage(message.content)}
+                onRetry={regenerate}
+                onDelete={() => deleteMessage(message.id)}
               >
-                {message.content}
-              </ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    code: function Code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code">) {
+                      const match = /language-(\w+)/.exec(className || "");
+                      const codeStr = String(children).replace(/\n$/, "");
+                      if (match) {
+                        return <ShikiHighlight code={codeStr} language={match[1]} />;
+                      }
+                      return (
+                        <code className="rounded-md bg-muted px-1 py-0.5 text-xs font-mono" {...props}>
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </ContextMenuMessage>
             </div>
           </div>
         </div>
@@ -197,7 +187,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <div className="min-w-0 flex-1 rounded-md bg-muted/30 px-3 py-1.5">
             <details className="group">
               <summary className="cursor-pointer text-[11px] font-mono text-muted-foreground/60 hover:text-muted-foreground/80 list-none flex items-center gap-1.5">
-                <span className="text-[10px] transition-transform group-open:rotate-90">▶</span>
+                <span className="text-[10px] transition-transform group-open:rotate-90">&#9654;</span>
                 <span className="truncate flex-1">
                   <code className="text-[11px] leading-relaxed text-muted-foreground/70 break-all font-mono">
                     {message.content?.length > 80
@@ -234,36 +224,46 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <img src="/avatar.png" alt="Agent" className="size-full object-cover img-blend" />
         </div>
         <div className="min-w-0 flex-1 rounded-[24px] rounded-tl-md bg-muted/50 px-5 py-3.5">
-          <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code: function Code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code">) {
-                  const match = /language-(\w+)/.exec(className || "");
-                  const codeStr = String(children).replace(/\n$/, "");
-
-                  if (match) {
-                    return (
-                      <ShikiHighlight code={codeStr} language={match[1]} />
-                    );
-                  }
-
-                  // 内联代码
-                  return (
-                    <code
-                      className="rounded-md bg-muted px-1 py-0.5 text-xs font-mono"
-                      {...props}
-                    >
-                      {children}
-                    </code>
-                  );
-                },
-              }}
+          <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground"> 
+            <ContextMenuMessage
+              role="agent"
+              content={message.content}
+              onCopy={() => copyMessage(message.content)}
+              onRetry={regenerate}
+              onDelete={() => deleteMessage(message.id)}
             >
-              {message.content}
-            </ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code: function Code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code">) {
+                    const match = /language-(\w+)/.exec(className || "");
+                    const codeStr = String(children).replace(/\n$/, "");
+
+                    if (match) {
+                      return (
+                        <ShikiHighlight code={codeStr} language={match[1]} />
+                      );
+                    }
+
+                    // 内联代码
+                    return (
+                      <code
+                        className="rounded-md bg-muted px-1 py-0.5 text-xs font-mono"
+                        {...props}
+                      >
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </ContextMenuMessage>
           </div>
-          {message.isStreaming && <TypingIndicator />}
+          {message.isStreaming && (
+            <span className="inline-block w-[2px] h-[1em] bg-primary animate-cursor-blink ml-0.5 align-middle" />
+          )}
         </div>
       </div>
       {/* 消息操作 — 在气泡下方 */}

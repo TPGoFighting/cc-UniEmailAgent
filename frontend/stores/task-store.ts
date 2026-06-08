@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { Task } from "@/lib/types";
 
 interface TaskStore {
@@ -13,38 +14,38 @@ interface TaskStore {
   getActiveTask: () => Task | null;
 }
 
-export const useTaskStore = create<TaskStore>((set, get) => ({
-  tasks: [],
-  activeTaskId: null,
+export const useTaskStore = create<TaskStore>()(
+  persist(
+    (set, get) => ({
+      tasks: [],
+      activeTaskId: null,
 
-  setTasks: (tasks) => set({ tasks }),
+      setTasks: (tasks) => set({ tasks }),
 
-  addTask: (task) =>
-    set((s) => ({ tasks: [task, ...s.tasks] })),
+      addTask: (task) =>
+        set((s) => ({ tasks: [task, ...s.tasks] })),
 
-  updateTask: (id, patch) =>
-    set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)),
-    })),
+      updateTask: (id, patch) =>
+        set((s) => ({
+          tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+        })),
 
-  removeTask: (id) =>
-    set((s) => ({
-      tasks: s.tasks.filter((t) => t.id !== id),
-      activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
-    })),
+      removeTask: (id) =>
+        set((s) => ({
+          tasks: s.tasks.filter((t) => t.id !== id),
+          activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
+        })),
 
-  setActiveTask: (id) => {
-    if (id) {
-      localStorage.setItem("activeTaskId", id);
-    } else {
-      localStorage.removeItem("activeTaskId");
+      setActiveTask: (id) => set({ activeTaskId: id }),
+
+      getActiveTask: () => {
+        const state = get();
+        if (!state.activeTaskId) return null;
+        return state.tasks.find((t) => t.id === state.activeTaskId) || null;
+      },
+    }),
+    {
+      name: "uniemail-tasks",
     }
-    set({ activeTaskId: id });
-  },
-
-  getActiveTask: () => {
-    const state = get();
-    if (!state.activeTaskId) return null;
-    return state.tasks.find((t) => t.id === state.activeTaskId) || null;
-  },
-}));
+  )
+);

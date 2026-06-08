@@ -57,6 +57,7 @@ const GROUP_LABELS: Record<string, string> = {
 export function Sidebar() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
+  const [fuseResultIds, setFuseResultIds] = useState<string[] | null>(null);
 
   const tasks = useTaskStore((s) => s.tasks);
   const activeTaskId = useTaskStore((s) => s.activeTaskId);
@@ -73,12 +74,29 @@ export function Sidebar() {
     search,
   } = useAgentChat({ streaming: false });
 
+  // 为 fuse 准备搜索数据（含消息内容）
+  const searchableTasks = useMemo(() => {
+    const runningIds = runningTaskIds;
+    return tasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      content: (t.messages || [])
+        .map((m) => m.content)
+        .filter(Boolean)
+        .join(" "),
+      running: runningIds.includes(t.id),
+    }));
+  }, [tasks, runningTaskIds]);
+
   // 搜索 + 筛选
   const filteredTasks = useMemo(() => {
     let result = tasks;
 
-    // 搜索过滤
-    if (searchQuery) {
+    // fuse 结果过滤（仅当有 fuse 结果时使用）
+    if (fuseResultIds !== null) {
+      result = result.filter((t) => fuseResultIds.includes(t.id));
+    } else if (searchQuery) {
+      // 后备：基本字符串匹配
       result = result.filter((t) =>
         t.title.toLowerCase().includes(searchQuery.toLowerCase())
       );
@@ -98,7 +116,7 @@ export function Sidebar() {
     }
 
     return result;
-  }, [tasks, searchQuery, activeFilter, runningTaskIds]);
+  }, [tasks, searchQuery, activeFilter, runningTaskIds, fuseResultIds]);
 
   // 按时间分组
   const groupedTasks = useMemo(() => {
@@ -148,7 +166,30 @@ export function Sidebar() {
       </div>
 
       {/* 搜索 */}
-      <SearchBar onSearch={search} />
+      <SearchBar
+        onSearch={search}
+        tasks={searchableTasks}
+        onFuseResults={(ids) => {
+          setFuseResultIds(ids.length > 0 ? ids : null);
+        }}
+      />
+
+      {/* 筛选标签 */}
+      <div className="flex gap-1 px-4 pb-2">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setActiveFilter(f.key)}
+            className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
+              activeFilter === f.key
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
       {/* 分隔 */}
       <div className="mx-4 border-t border-border/40" />
@@ -157,7 +198,9 @@ export function Sidebar() {
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-2 py-2">
           {groupedTasks.length === 0 ? (
-            <p className="px-5 py-6 text-xs text-muted-foreground/40">暂无任务</p>
+            <p className="px-5 py-6 text-xs text-muted-foreground/40">
+              {searchQuery || fuseResultIds ? "无匹配结果" : "暂无任务"}
+            </p>
           ) : (
             groupedTasks.map((group) => (
               <div key={group.label} className="mb-2">

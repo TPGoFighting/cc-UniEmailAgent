@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { PanelLeft, BookOpenText, Mail, Activity, Loader2, StopCircle, Search, Globe, RefreshCw, MoreHorizontal, Terminal } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { PanelLeft, BookOpenText, Mail, Activity, Loader2, StopCircle, Search, Globe, RefreshCw, MoreHorizontal, Terminal, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatInput } from "@/components/chat-input";
@@ -12,7 +12,6 @@ import { AgentActivityCard } from "@/components/agent-activity-card";
 import { CrawlProgressPanel } from "@/components/crawl-progress-panel";
 import { TaskResultPanel } from "@/components/task-result-panel";
 import { ErrorAlert } from "@/components/error-alert";
-import { CompletionCard } from "@/components/completion-card";
 import { LogPanel } from "@/components/log-panel";
 import { EmptyState } from "@/components/empty-state";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -24,6 +23,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useChatStore } from "@/stores/chat-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -74,10 +74,24 @@ export function ChatArea() {
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const setUniversityOpen = useUIStore((s) => s.setUniversityOpen);
   const setMailOpen = useUIStore((s) => s.setMailOpen);
+  const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const pendingInput = useUIStore((s) => s.pendingInput);
   const setPendingInput = useUIStore((s) => s.setPendingInput);
 
   const { send, stop, regenerate, selectTask } = useAgentChat({ streaming: true });
+
+  // 全局键盘快捷键
+  useKeyboardShortcuts();
+
+  // 错误重试：重新发送最后一条用户消息
+  const handleErrorRetry = useCallback(() => {
+    if (!activeTaskId) return;
+    const msgs = useChatStore.getState().taskMessages[activeTaskId] || [];
+    const lastUser = [...msgs].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      send(lastUser.content);
+    }
+  }, [activeTaskId, send]);
 
   const [procOpen, setProcOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
@@ -131,7 +145,7 @@ export function ChatArea() {
       setKillingTasks((prev) => ({ ...prev, [taskId]: false }));
     }
   };
-  const bottomRef = useAutoScroll(messages);
+  const { bottomRef, hasNewBelow, scrollToBottom } = useAutoScroll(messages);
   const filteredMessages = messages.filter((m) => m.role !== "log");
   const displayMessages = filteredMessages.length > 0 ? filteredMessages : [welcomeMessage];
   const showEmptyState =
@@ -196,6 +210,10 @@ export function ChatArea() {
               <DropdownMenuItem onClick={handleResetOnboarding}>
                 <span className="text-sm">🎓</span>
                 <span>重新查看引导</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                <Settings className="size-4 text-muted-foreground" />
+                <span>设置</span>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setProcOpen(true)}>
                 <Activity className="size-4 text-emerald-500" />
@@ -282,7 +300,7 @@ export function ChatArea() {
             )}
             {/* Phase 2: 用户友好错误提示 */}
             {(composerState === "connecting" || composerState === "streaming") && currentCrawlErrors.length > 0 && (
-              <ErrorAlert errors={currentCrawlErrors} />
+              <ErrorAlert errors={currentCrawlErrors} onRetry={handleErrorRetry} />
             )}
             {/* 爬取任务：有阶段数据时显示步骤卡片，否则显示 TypingIndicator */}
             {(composerState === "connecting" || composerState === "streaming") && currentIntent?.is_crawl !== false && (
@@ -304,6 +322,19 @@ export function ChatArea() {
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
+      )}
+
+      {/* 有新消息下方浮按钮 */}
+      {hasNewBelow && (
+        <div className="relative flex justify-center -mt-2 mb-1 z-10 pointer-events-none">
+          <button
+            onClick={scrollToBottom}
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-background/90 px-3.5 py-1.5 text-[11px] font-medium text-primary shadow-sm backdrop-blur-md transition-all duration-250 hover:bg-background hover:shadow-md hover:-translate-y-0.5 animate-fade-in"
+          >
+            <span className="inline-block size-1.5 rounded-full bg-primary animate-pulse" />
+            新消息 ↓
+          </button>
+        </div>
       )}
 
       {/* Status Ticker — shows recent log/progress messages during active tasks */}

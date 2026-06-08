@@ -8,6 +8,7 @@ import { EditMessageDialog } from "@/components/edit-message-dialog";
 import { UniversityWorkspace } from "@/components/university-workspace";
 import { MailWorkspace } from "@/components/mail-workspace";
 import { UndoToast } from "@/components/undo-toast";
+import { SettingsPanel } from "@/components/settings-panel";
 import { OnboardingTour, OnboardingFloatingButton } from "@/components/onboarding-tour";
 import { useChatStore } from "@/stores/chat-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -76,6 +77,7 @@ export default function HomePage() {
         <EditMessageDialog />
         <UniversityWorkspace />
         <MailWorkspace />
+        <SettingsPanel />
         <UndoToast />
         <OnboardingTour />
         <OnboardingFloatingButton />

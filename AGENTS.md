@@ -9,8 +9,8 @@ UniEmail Agent — 用户输入自然语言任务（如"抓取南京大学计算
 ## 启动命令
 
 ```bash
-# 后端 (FastAPI, port 8000)
-cd backend && python -m uvicorn main:app --port 8000 --reload
+# 后端 (FastAPI, port 8070)
+cd backend && python -m uvicorn main:app --port 8070 --reload
 
 # 前端 (Next.js 16, Turbopack, port 3000)
 cd frontend && npm run dev
