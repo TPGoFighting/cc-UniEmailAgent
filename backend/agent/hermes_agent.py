@@ -154,22 +154,20 @@ class HermesAgent:
     async def _run_hermes(
         self, message: str, task_id: str = ""
     ) -> AsyncGenerator[dict, None]:
-        """通过 PTY 流式运行 hermes chat --cli，逐行实时推日志。"""
+        """通过管道运行 hermes chat --cli，逐行实时推日志。"""
         if not shutil.which("hermes"):
             raise RuntimeError("hermes CLI 未安装")
 
         # 转义方括号防止 Hermes 的 rich markup 崩溃
         safe_msg = message.replace("[", r"\[").replace("]", r"\]")
-        shell_cmd = f"hermes chat -q {shlex.quote(safe_msg)} --yolo -m {shlex.quote(self.model)} --cli"
+        cmd = ["hermes", "chat", "-q", safe_msg, "--yolo", "-m", self.model, "--cli"]
         env = os.environ.copy()
-        task_start = time.time()
 
         process = await asyncio.create_subprocess_exec(
-            "stdbuf", "-o0", "script", "-qfc", shell_cmd, "/dev/null",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
-            preexec_fn=os.setsid,  # 独立进程组，方便 killpg 杀整棵树
         )
         self.active_procs[task_id] = process
 
