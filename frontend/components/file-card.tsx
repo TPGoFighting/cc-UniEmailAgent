@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileSpreadsheet, FileCode, FileImage, FileText, File as FileIcon } from "lucide-react";
+import { Download, FileSpreadsheet, FileCode, FileImage, FileText, File as FileIcon, FileType } from "lucide-react";
 import { api } from "@/services/api";
 
 interface FileItem {
@@ -12,7 +12,6 @@ interface FileItem {
 interface FileCardProps {
   file: FileItem;
   label?: string;
-  /** 当不传 url 时，用 taskId + filename 拼接下载地址 */
   taskId?: string;
 }
 
