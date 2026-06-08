@@ -124,14 +124,13 @@ class HermesAgent:
     async def _run_hermes(
         self, message: str, task_id: str = "", is_continuation: bool = False
     ) -> AsyncGenerator[dict, None]:
-        """通过子进程运行 hermes chat --cli，捕获输出后解析。"""
+        """通过子进程流式运行 hermes chat --cli，每行实时推日志。"""
         if not shutil.which("hermes"):
             raise RuntimeError("hermes CLI 未安装")
 
-        prompt = message
         cmd = [
             "hermes", "chat",
-            "-q", prompt,
+            "-q", message,
             "--yolo",
             "-m", self.model,
             "--cli",
@@ -140,6 +139,7 @@ class HermesAgent:
         env = os.environ.copy()
         task_start = time.time()
 
+        process = None
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -149,46 +149,52 @@ class HermesAgent:
             )
             self.active_procs[task_id] = process
 
-            stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(), timeout=TIMEOUT_SECONDS
-            )
+            collected_lines: list[str] = []
+            in_reply_block = False
+            reply_text = ""
+
+            # 从 stdout 逐行读取（Hermes TUI 全量输出在 stdout）
+            async for raw_line in process.stdout:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\n\r")
+                collected_lines.append(line)
+
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                # 检测回复块开始
+                if "⚕" in line and ("Hermes" in line or "──" in line):
+                    in_reply_block = True
+                    yield {"type": "log", "message": stripped, "timestamp": self._timestamp()}
+                    continue
+
+                if in_reply_block:
+                    # 检测回复块结束（底部虚线）
+                    if stripped.startswith("──") or stripped.startswith("─") or "Resume this session" in stripped:
+                        in_reply_block = False
+                        yield {"type": "log", "message": stripped, "timestamp": self._timestamp()}
+                        continue
+                    yield {"type": "log", "message": stripped, "timestamp": self._timestamp()}
+                    reply_text += stripped + "\n"
+                else:
+                    yield {"type": "log", "message": stripped, "timestamp": self._timestamp()}
+
+            # 等进程退出
+            await asyncio.wait_for(process.wait(), timeout=10)
             self.active_procs.pop(task_id, None)
 
             if process.returncode != 0:
-                err_text = stderr_data.decode("utf-8", errors="replace")[-500:]
                 yield {
                     "type": "error",
-                    "message": f"Hermes 异常退出（code {process.returncode}）: {err_text}",
+                    "message": f"Hermes 异常退出（code {process.returncode}）",
                     "timestamp": self._timestamp(),
                 }
                 return
 
-            # Hermes --cli 输出全部在 stdout
-            output = stdout_data.decode("utf-8", errors="replace")
-
-            # 提取 ⚕ Hermes 分隔符之间的回复文本
-            reply = ""
-            lines = output.split("\n")
-            in_reply = False
-            for line in lines:
-                stripped = line.strip()
-                if "⚕ Hermes" in stripped or "⚕" in stripped:
-                    in_reply = True
-                    continue
-                if in_reply:
-                    if stripped.startswith("──") or stripped.startswith("─") or stripped.startswith("Resume"):
-                        break
-                    if stripped and not stripped.startswith("⚠"):
-                        reply += stripped + "\n"
-
-            reply = reply.strip()
-            if reply:
-                yield {"type": "text", "message": reply, "timestamp": self._timestamp()}
-            else:
-                # 兜底：用完整 output 文本
-                logger.info("Hermes 回复为空，使用完整输出兜底")
-                if output.strip():
-                    yield {"type": "text", "message": output[:2000], "timestamp": self._timestamp()}
+            # 推最终回复文本
+            reply_text = reply_text.strip()
+            if reply_text:
+                yield {"type": "text", "message": reply_text, "timestamp": self._timestamp()}
 
             yield {"type": "done", "message": "Agent 任务执行完毕", "timestamp": self._timestamp()}
 
@@ -206,7 +212,13 @@ class HermesAgent:
                 "timestamp": self._timestamp(),
             }
         finally:
-            self.active_procs.pop(task_id, None)
+            if process:
+                self.active_procs.pop(task_id, None)
+                if process.returncode is None:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
 
     def _start_subprocess_thread(
         self, cmd: list[str], env: dict, queue: asyncio.Queue, task_id: str, prompt: str = ""
