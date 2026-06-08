@@ -768,6 +768,8 @@ class ClaudeAgent:
         prompt = message
 
         cmd = [
+            "sudo",
+            "-u", "uniemail",
             "claude",
             "--print",
             "--output-format", "stream-json",
