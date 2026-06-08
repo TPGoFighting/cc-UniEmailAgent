@@ -149,13 +149,13 @@ class HermesAgent:
             )
             self.active_procs[task_id] = process
 
-            stdout, stderr = await asyncio.wait_for(
+            stdout_data, stderr_data = await asyncio.wait_for(
                 process.communicate(), timeout=TIMEOUT_SECONDS
             )
             self.active_procs.pop(task_id, None)
 
             if process.returncode != 0:
-                err_text = stderr.decode("utf-8", errors="replace")[-500:]
+                err_text = stderr_data.decode("utf-8", errors="replace")[-500:]
                 yield {
                     "type": "error",
                     "message": f"Hermes 异常退出（code {process.returncode}）: {err_text}",
@@ -163,12 +163,12 @@ class HermesAgent:
                 }
                 return
 
-            # 从 stderr 提取回复（Hermes TUI 输出在 stderr）
-            stderr_text = stderr.decode("utf-8", errors="replace")
+            # Hermes --cli 输出全部在 stdout
+            output = stdout_data.decode("utf-8", errors="replace")
 
             # 提取 ⚕ Hermes 分隔符之间的回复文本
             reply = ""
-            lines = stderr_text.split("\n")
+            lines = output.split("\n")
             in_reply = False
             for line in lines:
                 stripped = line.strip()
@@ -185,10 +185,10 @@ class HermesAgent:
             if reply:
                 yield {"type": "text", "message": reply, "timestamp": self._timestamp()}
             else:
-                # 兜底：用完整 stderr 文本
-                logger.info("Hermes 回复为空，使用 stderr 兜底")
-                if stderr_text.strip():
-                    yield {"type": "text", "message": stderr_text[:2000], "timestamp": self._timestamp()}
+                # 兜底：用完整 output 文本
+                logger.info("Hermes 回复为空，使用完整输出兜底")
+                if output.strip():
+                    yield {"type": "text", "message": output[:2000], "timestamp": self._timestamp()}
 
             yield {"type": "done", "message": "Agent 任务执行完毕", "timestamp": self._timestamp()}
 
