@@ -180,6 +180,13 @@ class HermesAgent:
                     final_reply += s + "\n"
 
         final_reply = final_reply.strip()
+        if not final_reply and reply_text.strip():
+            # 如果提取不到，用完整日志文本兜底
+            lines = reply_text.strip().split("\n")
+            # 过滤掉标题行和分隔符
+            meaningful = [l for l in lines if l.strip() and not l.strip().startswith("─") and "Resume" not in l and "Session" not in l and "Duration" not in l]
+            final_reply = "\n".join(meaningful[-3:])
+
         if final_reply:
             yield {"type": "text", "message": final_reply, "timestamp": self._timestamp()}
         yield {"type": "done", "message": "Agent 任务执行完毕", "timestamp": self._timestamp()}
