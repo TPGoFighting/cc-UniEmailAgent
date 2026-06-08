@@ -148,7 +148,9 @@ class HermesAgent:
         try:
             async for raw_line in process.stdout:
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-                stripped = line.strip()
+                # 清理 ANSI 转义
+                cleaned = re.sub(r'\x1b\[[0-9;]*[mK]', '', line)
+                stripped = cleaned.strip()
                 if not stripped:
                     continue
                 yield {"type": "log", "message": stripped, "timestamp": self._timestamp()}
