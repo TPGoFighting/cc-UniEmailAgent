@@ -149,18 +149,11 @@ class HermesAgent:
             try:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
-                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=env,
                 )
                 self.active_procs[task_id] = process
-                try:
-                    process.stdin.write(prompt.encode("utf-8"))
-                    await process.stdin.drain()
-                    process.stdin.close()
-                except Exception as e:
-                    logger.warning(f"stdin 写入异常: {e}")
             except NotImplementedError:
                 queue = asyncio.Queue()
                 self._start_subprocess_thread(cmd, env, queue, task_id, prompt)
