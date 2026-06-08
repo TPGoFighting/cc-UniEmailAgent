@@ -88,7 +88,7 @@ class OpenClawAgent:
         with open(script_file, "w") as f:
             f.write(f"""#!/bin/bash
 export HOME=/root
-openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_key} >/dev/null 2>&1
+openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_key}
 """)
         os.chmod(script_file, 0o755)
 
@@ -102,11 +102,24 @@ openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_k
             )
             self.active_procs[task_id] = proc
 
-            await asyncio.wait_for(proc.wait(), timeout=600)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
             self.active_procs.pop(task_id, None)
 
-            # 从 session 文件读取回复
-            result_text = self._get_last_session_text()
+            # 从 stdout JSON 提取回复
+            result_text = ""
+            out = stdout.decode("utf-8", errors="replace")
+            try:
+                data = json.loads(out)
+                # 优先取 finalAssistantVisibleText
+                meta = data.get("meta", {})
+                result_text = meta.get("finalAssistantVisibleText", "") or meta.get("finalAssistantRawText", "")
+                if not result_text:
+                    # 退而求其次：payloads
+                    payloads = data.get("payloads", [])
+                    if payloads:
+                        result_text = payloads[0].get("text", "")
+            except (json.JSONDecodeError, ValueError):
+                pass
 
             if result_text:
                 yield {"type": "text", "message": result_text, "timestamp": self._timestamp()}
