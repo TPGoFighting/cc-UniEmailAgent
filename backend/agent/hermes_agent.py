@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -168,7 +169,7 @@ class HermesAgent:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
-            process_group=0,  # 独立进程组，方便 killpg 杀整棵树
+            preexec_fn=os.setsid,  # 独立进程组，方便 killpg 杀整棵树
         )
         self.active_procs[task_id] = process
 
