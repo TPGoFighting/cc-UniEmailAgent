@@ -1601,11 +1601,11 @@ async def agent_logs(ws: WebSocket, task_id: str):
 
     task_data = history.get(task_id)
     if task_data is None:
-        for _ in range(20):
+        for _ in range(50):
             await asyncio.sleep(0.1)
             task_data = history.get(task_id)
             if task_data is not None:
-                logger.info(f"task {task_id} created after wait")
+                logger.info(f"task {task_id} created after wait ({_*0.1:.1f}s)")
                 break
     if task_data is None:
         await ws.send_text(
