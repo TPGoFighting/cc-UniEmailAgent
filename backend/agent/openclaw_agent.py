@@ -83,16 +83,9 @@ class OpenClawAgent:
         with open(prompt_file, "w", encoding="utf-8") as f:
             f.write(message)
 
-        # 写包装脚本
-        script_file = f"/tmp/oc_run_{task_id[:8]}.sh"
-        with open(script_file, "w") as f:
-            f.write(f"""#!/bin/bash
-export HOME=/root
-openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_key}
-""")
-        os.chmod(script_file, 0o755)
-
-        cmd = [script_file]
+        # 直接调用 openclaw（不用包装脚本，避免 su 引号问题）
+        openclaw_cmd = f"cat {prompt_file} | openclaw agent --local -m \"$(cat {prompt_file})\" --json --session-key {session_key} 2>/dev/null"
+        cmd = ["su", "-", "uniemail", "-c", f"export HOME=/root && {openclaw_cmd}"]
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -135,7 +128,7 @@ openclaw agent --local -m "$(cat {prompt_file})" --json --session-key {session_k
             logger.error(f"OpenClaw execute error: {e}")
             yield {"type": "error", "message": f"执行异常: {str(e)[:200]}", "timestamp": self._timestamp()}
         finally:
-            for f in [prompt_file, script_file]:
+            for f in [prompt_file]:
                 try:
                     os.remove(f)
                 except OSError:
