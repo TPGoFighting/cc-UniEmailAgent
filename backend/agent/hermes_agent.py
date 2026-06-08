@@ -124,7 +124,7 @@ class HermesAgent:
     async def _run_hermes(
         self, message: str, task_id: str = "", is_continuation: bool = False
     ) -> AsyncGenerator[dict, None]:
-        """通过子进程运行 hermes chat --json，流式解析输出。"""
+        """通过子进程运行 hermes chat --cli，捕获输出后解析。"""
         if not shutil.which("hermes"):
             raise RuntimeError("hermes CLI 未安装")
 
@@ -140,29 +140,73 @@ class HermesAgent:
         env = os.environ.copy()
         task_start = time.time()
 
-        if sys.platform == "win32":
-            queue: asyncio.Queue = asyncio.Queue()
-            self._start_subprocess_thread(cmd, env, queue, task_id, prompt)
-            async for log in self._process_output(queue, task_id, task_start, message):
-                yield log
-        else:
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                self.active_procs[task_id] = process
-            except NotImplementedError:
-                queue = asyncio.Queue()
-                self._start_subprocess_thread(cmd, env, queue, task_id, prompt)
-                async for log in self._process_output(queue, task_id, task_start, message):
-                    yield log
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            self.active_procs[task_id] = process
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=TIMEOUT_SECONDS
+            )
+            self.active_procs.pop(task_id, None)
+
+            if process.returncode != 0:
+                err_text = stderr.decode("utf-8", errors="replace")[-500:]
+                yield {
+                    "type": "error",
+                    "message": f"Hermes 异常退出（code {process.returncode}）: {err_text}",
+                    "timestamp": self._timestamp(),
+                }
                 return
 
-            async for log in self._process_output(process, task_id, task_start, message):
-                yield log
+            # 从 stderr 提取回复（Hermes TUI 输出在 stderr）
+            stderr_text = stderr.decode("utf-8", errors="replace")
+
+            # 提取 ⚕ Hermes 分隔符之间的回复文本
+            reply = ""
+            lines = stderr_text.split("\n")
+            in_reply = False
+            for line in lines:
+                stripped = line.strip()
+                if "⚕ Hermes" in stripped or "⚕" in stripped:
+                    in_reply = True
+                    continue
+                if in_reply:
+                    if stripped.startswith("──") or stripped.startswith("─") or stripped.startswith("Resume"):
+                        break
+                    if stripped and not stripped.startswith("⚠"):
+                        reply += stripped + "\n"
+
+            reply = reply.strip()
+            if reply:
+                yield {"type": "text", "message": reply, "timestamp": self._timestamp()}
+            else:
+                # 兜底：用完整 stderr 文本
+                logger.info("Hermes 回复为空，使用 stderr 兜底")
+                if stderr_text.strip():
+                    yield {"type": "text", "message": stderr_text[:2000], "timestamp": self._timestamp()}
+
+            yield {"type": "done", "message": "Agent 任务执行完毕", "timestamp": self._timestamp()}
+
+        except asyncio.TimeoutError:
+            yield {
+                "type": "error",
+                "message": f"任务超时 ({TIMEOUT_SECONDS}s)，已终止",
+                "timestamp": self._timestamp(),
+            }
+        except Exception as e:
+            logger.error(f"Hermes 执行异常: {e}")
+            yield {
+                "type": "error",
+                "message": f"Hermes 执行异常: {str(e)[:200]}",
+                "timestamp": self._timestamp(),
+            }
+        finally:
+            self.active_procs.pop(task_id, None)
 
     def _start_subprocess_thread(
         self, cmd: list[str], env: dict, queue: asyncio.Queue, task_id: str, prompt: str = ""
@@ -260,11 +304,8 @@ class HermesAgent:
         is_threaded = isinstance(source, asyncio.Queue)
 
         if not is_threaded:
-            try:
-                source.stdout._limit = 10 * 1024 * 1024  # 10MB
-            except AttributeError:
-                pass
-            stderr_task = asyncio.create_task(self._drain_stderr(source.stderr))
+            # source 是 process.stderr (StreamReader)
+            pass
 
         step_count = 0
         has_output = False
