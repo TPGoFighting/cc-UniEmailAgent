@@ -1775,10 +1775,13 @@ async def agent_logs(ws: WebSocket, task_id: str):
                     existing_uni = uni_match.group(1)
                     break
 
-        intent_result = await classify_intent(
-            user_message,
-            has_existing_data=has_data,
-            existing_university=existing_uni,
+        intent_result = await asyncio.wait_for(
+            classify_intent(
+                user_message,
+                has_existing_data=has_data,
+                existing_university=existing_uni,
+            ),
+            timeout=15.0,  # 防止 LLM 卡死整条 WS 链路
         )
         logger.info(
             f"[IntentRouter] task {task_id[:8]}: intent={intent_result.intent.value} "
