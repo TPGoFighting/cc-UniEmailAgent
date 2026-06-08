@@ -130,7 +130,9 @@ class HermesAgent:
             raise RuntimeError("hermes CLI 未安装")
 
         import shlex
-        shell_cmd = f"hermes chat -q {shlex.quote(message)} --yolo -m {shlex.quote(self.model)} --cli"
+        # 转义方括号防止和 Hermes 的 rich markup 冲突
+        safe_message = message.replace("[", r"\[").replace("]", r"\]")
+        shell_cmd = f"hermes chat -q {shlex.quote(safe_message)} --yolo -m {shlex.quote(self.model)} --cli"
         env = os.environ.copy()
         task_start = time.time()
 
