@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -8,20 +8,13 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
-import { useTheme } from "next-themes";
 import {
   Settings,
-  Palette,
   Server,
   Download,
   Keyboard,
-  Moon,
-  Sun,
-  Monitor,
 } from "lucide-react";
 
 const shortcuts = [
@@ -45,13 +38,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 export function SettingsPanel() {
   const settingsOpen = useUIStore((s) => s.settingsOpen);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
-  const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
-
-  useEffect(() => setMounted(true), []);
-
-  if (!mounted) return null;
 
   return (
     <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
@@ -87,70 +74,9 @@ export function SettingsPanel() {
         <ScrollArea className="flex-1 px-5 py-4">
           {activeTab === "general" && (
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
-                <Palette className="size-4 text-primary" />
-                主题切换
-              </h3>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => setTheme("dark")}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
-                    theme === "dark"
-                      ? "border-primary/40 bg-primary/10 ring-1 ring-primary/30"
-                      : "border-border/30 hover:border-border/60 hover:bg-muted/20"
-                  }`}
-                >
-                  <Moon className="size-5 text-primary" />
-                  <span className="text-xs font-medium">深色</span>
-                </button>
-                <button
-                  onClick={() => setTheme("light")}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
-                    theme === "light"
-                      ? "border-primary/40 bg-primary/10 ring-1 ring-primary/30"
-                      : "border-border/30 hover:border-border/60 hover:bg-muted/20"
-                  }`}
-                >
-                  <Sun className="size-5 text-amber-500" />
-                  <span className="text-xs font-medium">浅色</span>
-                </button>
-                <button
-                  onClick={() => setTheme("system")}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
-                    theme === "system"
-                      ? "border-primary/40 bg-primary/10 ring-1 ring-primary/30"
-                      : "border-border/30 hover:border-border/60 hover:bg-muted/20"
-                  }`}
-                >
-                  <Monitor className="size-5 text-muted-foreground" />
-                  <span className="text-xs font-medium">系统</span>
-                </button>
-              </div>
-
-              {/* Additional themes section */}
-              <div className="mt-2">
-                <p className="text-xs text-muted-foreground/60 mb-2">扩展主题</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: "dracula", label: "Dracula", color: "bg-purple-500" },
-                    { id: "nord", label: "Nord", color: "bg-blue-400" },
-                    { id: "monokai", label: "Monokai", color: "bg-green-500" },
-                  ].map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => setTheme(t.id)}
-                      className={`flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
-                        theme === t.id
-                          ? "border-primary/40 bg-primary/10 ring-1 ring-primary/30"
-                          : "border-border/30 hover:border-border/60 hover:bg-muted/20"
-                      }`}
-                    >
-                      <div className={`size-5 rounded-full ${t.color}`} />
-                      <span className="text-xs font-medium">{t.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <p className="text-xs text-muted-foreground/60">
+                当前主题为浅色模式。如有需要，请通过系统主题设置调整。
+              </p>
             </div>
           )}
 

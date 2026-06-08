@@ -38,13 +38,14 @@ export function ChatInput({
 
   const handleSend = () => {
     const trimmed = input.trim();
-    // idle / completed / stopped 状态下都允许发送新消息
+    // idle / completed / stopped / error 状态下都允许发送新消息
     if (
       !trimmed ||
       disabled ||
       (composerState !== "idle" &&
         composerState !== "completed" &&
-        composerState !== "stopped")
+        composerState !== "stopped" &&
+        composerState !== "error")
     )
       return;
     onSend(trimmed);
@@ -83,6 +84,10 @@ export function ChatInput({
         return "任务执行中，可以输入新指令...";
       case "completed":
         return "继续输入新任务，或选择历史任务";
+      case "stopped":
+        return "任务已暂停，输入新内容继续";
+      case "error":
+        return "💡 输入任务，例如：帮我抓取南京大学计算机学院教师邮箱";
       default:
         return "输入你的任务，例如：帮我抓取南京大学计算机学院教师邮箱";
     }
@@ -130,7 +135,7 @@ export function ChatInput({
           )}
 
           {/* Send Button — 所有非流式状态都显示发送按钮 */}
-          {(isIdle || isCompleted || isStopped) && (
+          {(isIdle || isCompleted || isStopped || composerState === "error") && (
             <button
               onClick={handleSend}
               disabled={!input.trim()}

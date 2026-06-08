@@ -44,8 +44,9 @@ export default function RootLayout({
       <body className="flex h-full flex-col overflow-hidden">
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
-          themes={["dark", "light", "system", "dracula", "nord", "monokai"]}
+          defaultTheme="light"
+          forcedTheme="light"
+          themes={["light"]}
           enableSystem={false}
           disableTransitionOnChange
         >

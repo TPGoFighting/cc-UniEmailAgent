@@ -95,7 +95,12 @@ _trace_runs: dict[str, str] = {}  # task_id -> LangSmith run_id
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("UniEmail Agent 后端启动")
+    # 启动时清空 in-memory 状态（防止旧进程的残留数据）
+    _running_agent_tasks.clear()
+    _running_agent_info.clear()
+    _task_start_times.clear()
+    _trace_runs.clear()
+    logger.info("UniEmail Agent 后端启动（状态已清空）")
     yield
     logger.info("UniEmail Agent 后端关闭")
 
@@ -1604,6 +1609,15 @@ async def agent_logs(ws: WebSocket, task_id: str):
         await ws.close()
         return
 
+    # 获取最新的用户消息（需要在状态检查之前，用于意图判断）
+    user_message = ""
+    for m in reversed(task_data.get("messages", [])):
+        if m.get("role") == "user":
+            user_message = m.get("content", "")
+            break
+    if not user_message:
+        user_message = task_data.get("title", "no task found")
+
     # 已完成/已失败的任务 → 回放历史消息，不重新执行 Agent
     task_status = task_data.get("status", "")
     if task_status in ("completed", "failed"):
@@ -1628,11 +1642,7 @@ async def agent_logs(ws: WebSocket, task_id: str):
         await ws.close()
         return
 
-    user_message = ""
-    for m in reversed(task_data.get("messages", [])):
-        if m.get("role") == "user":
-            user_message = m.get("content", "")
-            break
+    # 从最新收到的消息中获取 user_message（非重放场景）
 
     if not user_message:
         user_message = task_data.get("title", "no task found")
@@ -1727,31 +1737,6 @@ async def agent_logs(ws: WebSocket, task_id: str):
             cleanup_task_dir(task_id)
             get_task_dir(task_id)
 
-        # ── 已有产出文件 + 已有历史消息 → 跳过执行，回放历史 ──
-        output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
-        if output_dir.exists() and not is_followup:
-            existing_files = list(output_dir.glob("*.csv")) + list(output_dir.glob("*.xlsx"))
-            if any(f.stat().st_size > 200 for f in existing_files):
-                existing_msgs = task_data.get("messages", [])
-                if any(m.get("role") == "agent" for m in existing_msgs):
-                    logger.info(f"task {task_id} has output files, replaying history")
-                    for m in existing_msgs:
-                        role = m.get("role", "")
-                        if role == "user":
-                            continue
-                        ws_type = "text" if role in ("agent", "text") else role
-                        replay = {
-                            "type": ws_type,
-                            "message": m.get("content", ""),
-                            "timestamp": m.get("timestamp", ""),
-                        }
-                        if m.get("filename"): replay["filename"] = m["filename"]
-                        if m.get("url"): replay["url"] = m["url"]
-                        await ws.send_text(json.dumps(replay, ensure_ascii=False))
-                    await ws.send_text(json.dumps({"type": "done", "message": "任务已完成", "timestamp": datetime.now().strftime("%H:%M:%S")}))
-                    await ws.close()
-                    return
-
         existing_user_msg = None
         for m in task_data.get("messages", []):
             if m.get("role") == "user":
@@ -1764,7 +1749,7 @@ async def agent_logs(ws: WebSocket, task_id: str):
                 "content": user_message,
             })
 
-        # ── 智能意图路由（三路分类） ──
+        # ── 智能意图路由（三路分类）—— 提前到文件检测之前执行 ──
         # 判断当前任务是否已有数据
         has_data = False
         existing_uni = ""
@@ -1790,6 +1775,36 @@ async def agent_logs(ws: WebSocket, task_id: str):
             f"[IntentRouter] task {task_id[:8]}: intent={intent_result.intent.value} "
             f"uni={intent_result.university_name} reason={intent_result.reason}"
         )
+
+        # ── 已有产出文件 + 已有历史消息 → 跳过执行，回放历史（仅限非增量任务） ──
+        output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+        existing_files = list(output_dir.glob("*.csv")) + list(output_dir.glob("*.xlsx"))
+        has_valid_files = any(f.stat().st_size > 200 for f in existing_files)
+        if has_valid_files and intent_result.intent != IntentType.INCREMENTAL_CRAWL:
+            existing_msgs = task_data.get("messages", [])
+            has_agent_msgs = any(m.get("role") == "agent" for m in existing_msgs)
+            if has_agent_msgs:
+                # 如果任务状态还是 running，先修正为 completed
+                if task_data.get("status") == "running":
+                    history.update_status(task_id, "completed")
+                    logger.info(f"task {task_id} status fixed: running → completed (output files exist)")
+                logger.info(f"task {task_id} has output files and intent is {intent_result.intent.value}, replaying history")
+                for m in existing_msgs:
+                    role = m.get("role", "")
+                    if role == "user":
+                        continue
+                    ws_type = "text" if role in ("agent", "text") else role
+                    replay = {
+                        "type": ws_type,
+                        "message": m.get("content", ""),
+                        "timestamp": m.get("timestamp", ""),
+                    }
+                    if m.get("filename"): replay["filename"] = m["filename"]
+                    if m.get("url"): replay["url"] = m["url"]
+                    await ws.send_text(json.dumps(replay, ensure_ascii=False))
+                await ws.send_text(json.dumps({"type": "done", "message": "任务已完成", "timestamp": datetime.now().strftime("%H:%M:%S")}))
+                await ws.close()
+                return
 
         # ── 按意图分发 ──
         if intent_result.intent == IntentType.SIMPLE_QUERY:
@@ -1891,6 +1906,31 @@ async def agent_logs(ws: WebSocket, task_id: str):
             "4. **脏数据过滤** — 名称若为导航关键词（如「师资队伍」「教授」「副教授」「讲师」「兼职教授」「首页」等），应剔除\n"
         )
 
+        # ── 硬性爬取规范（P0: 必须遵守，由 Hermes 统一派发） ──
+        strategy_prompt = (
+            "## 🔥 硬性爬取规范（必须逐条遵守，违者视为执行失败）\n\n"
+            "### 1. 执行模式：每个学院独立 + 3 学院并行\n"
+            "- 每个学院写一个独立的爬取函数，不能共用通用脚本\n"
+            "- **必须同时启动 3 个学院的爬取**（使用 asyncio.gather 或 ThreadPoolExecutor(3)）\n"
+            "- 例：启动线程1爬中医学院 + 线程2爬药学院 + 线程3爬医学院，同时跑\n"
+            "- 一个学院完成后，立即启动下一个学院，始终保持 3 个并发\n\n"
+            "### 2. 质量阈值：每学院 ≥35 人且 ≥35 邮箱\n"
+            "- 每个学院爬完后，**立即统计**该学院的教师数和邮箱数\n"
+            "- 如果该学院教师数 < 35 或邮箱数 < 35，**必须立即执行二次检查**：\n"
+            "  1. 检查是否只爬了部分子分类（如只爬了教授没爬副教授）\n"
+            "  2. 检查 URL 模式是否遗漏了其他师资入口\n"
+            "  3. 尝试备选 URL 或备选选择器重新爬取\n"
+            "  4. 记录缺失原因到日志\n"
+            "- 二次检查完成后才可认为该学院完成\n\n"
+            "### 3. 邮箱提取规则\n"
+            "- 只提取教师个人邮箱，忽略学院公共邮箱（webmaster、wxyxz 等）\n"
+            "- 反爬恢复：`xxx[at]xxx.com` → `xxx@xxx.com`，`xxx#@xxx.com` → `xxx@xxx.com`\n"
+            "- 无邮箱的留空，不要填「无邮箱」\n\n"
+            "### 4. 关键要点\n"
+            "- 必须进个人详情页才有邮箱，列表页没有\n"
+            "- 遇到反爬或失败继续下一个，不要重试同一页面超过 2 次\n"
+        )
+
         # 注入到 prompt 前面
         injection_parts = []
         if skill_prompt:
@@ -1904,13 +1944,26 @@ async def agent_logs(ws: WebSocket, task_id: str):
         injection_parts.append(schema_prompt)
         injection_parts.append(isolation_prompt)
         injection_parts.append(merge_rule_prompt)
+        injection_parts.append(strategy_prompt)
         if is_incremental:
             injection_parts.append(
-                "## 🔄 增量爬取说明\n\n"
-                "这是一个**增量补充任务**。请先读取当前任务的已有数据文件，"
-                "识别缺失或不达标的学院/教师记录，然后只针对这些缺口进行补充爬取。\n"
-                f"{'阈值提示: ' + intent_result.threshold_hint if intent_result.threshold_hint else ''}\n"
-                "不要覆盖已有的正确数据，只补充缺失部分。完成后去重合并输出完整文件。\n"
+                "## 🔄 增量爬取说明（必须严格遵守）\n\n"
+                "这是一个**增量补充任务**。现有的 CSV/XLSX 文件已在任务目录下，请按以下步骤执行：\n\n"
+                "### 第一步：读取现有数据\n"
+                "1. 先 `ls outputs/{task_id}/` 查看有哪些文件\n"
+                "2. 读取已有的 CSV 文件，了解已覆盖的学院和每学院教师数\n"
+                "3. 与该校的完整学院列表对比，找出缺失或数据不足的学院\n\n"
+                "### 第二步：只补充缺失部分\n"
+                "4. **只对缺失学院或数据严重不足的学院进行补充爬取**\n"
+                "5. 已有数据的学院不要重复爬取\n"
+                "6. 如果某个学院之前因动态加载/PDF 失败，换策略再试：\n"
+                "   - 动态 JS 页面 → 用 Playwright 的 `wait_for_selector` + 延迟等待渲染完成\n"
+                "   - PDF 教师名录 → 先用 requests 下载 PDF，再用 PyMuPDF/PDFPlumber 提取\n"
+                "   - iframe 内嵌页面 → 切换到 iframe context 再操作\n"
+                "   - 跨域 API 加载 → 在浏览器 Network 面板找 XHR/JSON 接口直接调\n\n"
+                "### 第三步：合并输出\n"
+                "7. 新数据与已有数据去重合并后输出完整文件\n"
+                "8. 不要覆盖已有的正确数据，只补充缺失部分\n"
             )
         # Phase 3: 用户可读输出指令
         user_output_guide = (
@@ -2042,6 +2095,13 @@ async def agent_logs(ws: WebSocket, task_id: str):
                             }
                             await ws.send_text(json.dumps(stats_msg, ensure_ascii=False))
                 logger.info("task %s agent: %s", task_id, text[:500])
+                # 持久化用户可见的 log 消息到历史（刷新后日志面板也能看到）
+                history.add_message(task_id, {
+                    "id": f"log-{task_id[:8]}-{log.get('timestamp', datetime.now().strftime('%H:%M:%S'))}-{msg_seq}",
+                    "role": "log",
+                    "content": text[:500],
+                    "timestamp": log.get("timestamp", datetime.now().strftime("%H:%M:%S")),
+                })
                 continue  # ❗️ log 类型只做收集，不落入后续的 common path（不写 history、不发 WS）
             if msg_type == "text":
                 text = log.get("message", "") or ""

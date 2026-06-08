@@ -27,89 +27,6 @@ CLAUDE_STARTUP_TIMEOUT = 30
 # 允许 claude CLI 使用的工具白名单（替代 bypassPermissions）
 ALLOWED_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 
-# 爬取策略 system prompt — 注入到用户消息前，指导 Agent 如何深层爬取
-CRAWL_STRATEGY_PROMPT = """## 🚫 任务隔离红线（最高优先级，违反将导致数据泄露）
-
-你只能操作本任务的专属目录 `{{OUTPUT_DIR}}`，以下是绝对禁止行为：
-- ❌ 使用 Glob/rglob 扫描 outputs/ 根目录或全量遍历 outputs/ 子目录
-- ❌ 读取其他大学/其他任务的 CSV、XLSX、JSON 数据文件
-- ❌ 读取其他大学名称命名的文件（如「东南大学_xxx.csv」）
-- ❌ 使用 `cat`/`head`/`python` 读取 skills/ 以外的其他任务输出文件
-- ✅ 正确做法：直接指定 `{{OUTPUT_DIR}}/文件名.csv` 进行读写
-
-## 📋 启动检查清单（任务开始时必须按顺序执行）
-
-1. **列出本任务目录**：执行 `ls {{OUTPUT_DIR}}/` 了解已有的数据文件
-2. **读取技能知识库**：
-   - 读取 `skills/crawl_knowledge.md`，查找与目标大学相关的章节
-   - 读取 `skills/global_crawling_rules.md`，了解全局爬取规则和避坑指南
-   - 查找 `skills/` 下文件名含目标大学名的 .json 文件，读取历史任务经验
-3. **确认目标 URL**：根据技能库中的 URL 映射或搜索引擎确认目标大学官网地址
-
-## 爬取任务指令
-
-爬取高校教师邮箱，按以下层次操作，不可停留在列表页：
-
-### 大学识别
-精确提取用户消息中的目标大学全称，不要自行替换或纠正。
-
-### 爬取流程
-1. 打开目标大学官网 → 「师资队伍」「教师名录」入口 → 指定学院列表页
-2. 从列表页提取每位教师的姓名链接 → 进入个人详情页 → 查找邮箱
-3. 忽略导航链接（如「学院概况」「通知公告」），只认含完整姓名的教师条目
-
-### 邮箱规则
-- 只提取教师个人邮箱，忽略学院公共邮箱（webmaster、wxyxz 等）
-- 反爬恢复：`xxx[at]xxx.com` → `xxx@xxx.com`
-- 无邮箱的标记为「无邮箱」
-
-### CSV 字段
-姓名、邮箱、学院、职称、主页链接
-
-### 关键要点
-- 必须进个人详情页才有邮箱，列表页没有
-- 文件名：`大学名_教师邮箱_时间戳.csv`，保存到 {{OUTPUT_DIR}}
-- 输出目录已由系统创建，直接使用即可，无需 mkdir
-- 遇到反爬或失败继续下一个，不要重试同一页面超过 2 次
-
-### 📁 文件分享
-任务完成时用以下格式列出下载文件（只有列出的才会显示下载链接）：
-[FILES]
-文件名.csv | 简短描述
-[/FILES]
-
-### 🧠 任务完成后 — 自我反思与技能沉淀
-任务完成（done）后，你必须回顾本次爬取的难点和解决方案，然后：
-1. 读取 `skills/crawl_knowledge.md` 全文
-2. 如果本次任务有**新的发现**（特殊的网站结构、新的反爬策略、非标准邮箱编码等）：
-   - 在回复末尾用 `[REFLECTION]...[/REFLECTION]` 格式输出反思内容，由后端统一处理
-   - 记录本次爬取的 URL 模式、关键选择器、踩坑与解决方案
-3. 如果本次没有新发现，在回复末尾输出 `[REFLECTION]none[/REFLECTION]`
-4. **禁止**使用 Edit 工具直接修改 skills/ 目录下的任何文件
-
-以下是要爬取的具体任务："""
-
-# 启动检查清单（所有爬取任务都注入，包括追问/增量场景）
-STARTUP_CHECKLIST_PROMPT = """## 🚫 任务隔离红线（最高优先级，违反将导致数据泄露）
-
-你只能操作本任务的专属目录 `{{OUTPUT_DIR}}`，以下是绝对禁止行为：
-- ❌ 使用 Glob/rglob 扫描 outputs/ 根目录或全量遍历 outputs/ 子目录
-- ❌ 读取其他大学/其他任务的 CSV、XLSX、JSON 数据文件
-- ❌ 读取其他大学名称命名的文件（如「东南大学_xxx.csv」）
-- ❌ 使用 `cat`/`head`/`python` 读取 skills/ 以外的其他任务输出文件
-- ✅ 正确做法：直接指定 `{{OUTPUT_DIR}}/文件名.csv` 进行读写
-
-## 📋 启动检查清单（任务开始时必须按顺序执行）
-
-1. **列出本任务目录**：执行 `ls {{OUTPUT_DIR}}/` 了解已有的数据文件
-2. **读取技能知识库**：
-   - 读取 `skills/crawl_knowledge.md`，查找与目标大学相关的章节
-   - 读取 `skills/global_crawling_rules.md`，了解全局爬取规则和避坑指南
-   - 查找 `skills/` 下文件名含目标大学名的 .json 文件，读取历史任务经验
-3. **确认目标 URL**：根据技能库中的 URL 映射或搜索引擎确认目标大学官网地址
-
-以下是要爬取的具体任务："""
-
 
 class ClaudeAgent:
     """Claude Code Agent 包装器。
@@ -156,7 +73,9 @@ class ClaudeAgent:
         task_id: str = "",
         is_continuation: bool = False,
         is_crawl_session: bool = True,
-        current_user_message: str | None = None
+        current_user_message: str | None = None,
+        intent_result=None,
+        **kwargs
     ) -> AsyncGenerator[dict, None]:
         """执行任务。先尝试 Claude Code，失败则回退到 Playwright。
 
@@ -845,18 +764,8 @@ class ClaudeAgent:
         if not shutil.which("claude"):
             raise RuntimeError("claude CLI 未安装")
 
-        # 爬取任务自动注入策略 prompt
-        # 新任务：注入完整策略（含爬取指令）；追问/增量：注入启动检查清单（隔离红线 + 读 skills 步骤）
-        if await self._is_crawl_task(message):
-            output_dir = f"outputs/{task_id}" if task_id else "outputs"
-            if not is_continuation:
-                prompt = CRAWL_STRATEGY_PROMPT.replace("{{OUTPUT_DIR}}", output_dir) + "\n" + message
-                logger.info("检测到爬取任务（新），已注入完整爬取策略 prompt")
-            else:
-                prompt = STARTUP_CHECKLIST_PROMPT.replace("{{OUTPUT_DIR}}", output_dir) + "\n" + message
-                logger.info("检测到爬取任务（追问/增量），已注入启动检查清单 prompt")
-        else:
-            prompt = message
+        # prompt 已由 Hermes/上层构建完毕，ClaudeAgent 不再注入任何额外内容
+        prompt = message
 
         cmd = [
             "claude",
