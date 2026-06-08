@@ -52,17 +52,30 @@ class HermesAgent:
         return True
 
     def stop_task(self, task_id: str) -> bool:
-        """终止正在运行的 hermes 子进程。"""
+        """暴力终止 hermes 子进程及其整个进程树。"""
         self._stopped_tasks.add(task_id)
         proc = self.active_procs.pop(task_id, None)
-        if proc:
+        if not proc:
+            return False
+        try:
+            pgid = os.getpgid(proc.pid)
+            # 先 SIGTERM 给机会优雅退出
+            os.killpg(pgid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                os.killpg(pgid, signal.SIGKILL)  # 强杀
+            logger.info(f"成功终止 Task {task_id} 进程树 (PGID={pgid})")
+            return True
+        except ProcessLookupError:
+            return True  # 进程已退出
+        except Exception as e:
+            logger.error(f"终止 Task {task_id} 进程树失败: {e}")
             try:
                 proc.kill()
-                logger.info(f"成功终止 Task {task_id} 的 hermes 子进程")
-                return True
-            except Exception as e:
-                logger.error(f"终止 Task {task_id} 子进程失败: {e}")
-        return False
+            except Exception:
+                pass
+            return True
 
     def _timestamp(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
@@ -155,6 +168,7 @@ class HermesAgent:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            process_group=0,  # 独立进程组，方便 killpg 杀整棵树
         )
         self.active_procs[task_id] = process
 
