@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from agent.claude_agent import ClaudeAgent
 from agent.hermes_agent import HermesOrchestrator
 from agent.graph_agent import GraphAgent
+from agent.openclaw_agent import OpenClawAgent
 from agent.exporter import get_task_dir, cleanup_task_dir, _BASE_OUTPUT_DIR
 from agent.history import history
 from agent.intent_router import classify_intent, IntentType, IntentResult
@@ -75,6 +76,9 @@ try:
     if os.environ.get("GRAPH_AGENT_ENABLED", "").lower() in ("true", "1", "yes"):
         agent = GraphAgent()
         logger.info("使用 GraphAgent（LangGraph 状态机）")
+    elif shutil.which("openclaw"):
+        agent = OpenClawAgent()
+        logger.info("使用 OpenClaw Agent（DeepSeek 引擎）")
     elif shutil.which("hermes"):
         agent = HermesOrchestrator()
         logger.info("使用 Hermes Agent（智能引擎）")
