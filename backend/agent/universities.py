@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.exporter import _BASE_OUTPUT_DIR
+from constants import EMAIL_RE
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,6 @@ OFFICIAL_UNDERGRADUATE_XLS_URL = (
     "http://www.moe.gov.cn/jyb_xxgk/s5743/s5744/A03/202506/"
     "W020250729615142156867.xls"
 )
-EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 UNIVERSITY_985 = {
     "北京大学", "中国人民大学", "清华大学", "北京航空航天大学", "北京理工大学", "中国农业大学", "北京师范大学", "中央民族大学",
@@ -146,14 +146,15 @@ def _download_official_catalog() -> list[dict[str, Any]]:
             continue
         if len(cells) < 6 or cells[1] in ("", "学校名称"):
             continue
-        if cells[5] != "本科":
-            continue
+        school_type = cells[5] if cells[5] in ("本科", "专科") else "本科"
         name = _normalize_school_name(cells[1])
+        if not name or name == "nan":
+            continue
         items.append({
             "name": name,
             "province": province,
             "city": cells[4] or province,
-            "type": "本科",
+            "type": school_type,
         })
     if not items:
         raise RuntimeError("official university catalog is empty")
@@ -178,14 +179,14 @@ def _tier_match(item: dict[str, Any], tier: str) -> bool:
     if not tier or tier == "全部":
         return True
     if tier == "985":
-        return bool(item.get("is_985"))
+        return item.get("name", "") in UNIVERSITY_985
     if tier == "211":
-        return bool(item.get("is_211"))
+        return item.get("name", "") in UNIVERSITY_985 | UNIVERSITY_211_EXTRA
     if tier == "双一流":
-        return bool(item.get("is_double_first_class"))
-    if tier == "普通本科":
-        return not item.get("is_985") and not item.get("is_211") and not item.get("is_double_first_class")
-    return True
+        return item.get("name", "") in DOUBLE_FIRST_CLASS
+    if tier == "专科":
+        return item.get("type", "") == "专科"
+    return item.get("type", "") == "本科"
 
 
 def _candidate_output_files() -> list[Path]:

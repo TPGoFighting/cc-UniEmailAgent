@@ -1,11 +1,23 @@
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+function getBackendUrl(): string {
+  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL) {
+    return process.env.NEXT_PUBLIC_BACKEND_URL;
+  }
+  return "http://localhost:8000";
+}
+
+const BACKEND_URL = getBackendUrl();
 
 /** Generic request helper */
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {};
+  // When body is FormData, let the browser set Content-Type (multipart boundary)
+  if (!(options?.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
   const res = await fetch(url, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...headers,
       ...(options?.headers ?? {}),
     },
   });
@@ -117,7 +129,8 @@ export const api = {
   exportMailJobUrl: (jobId: string, format = "csv") => `${BACKEND_URL}/api/mail/jobs/${jobId}/export?format=${encodeURIComponent(format)}`,
   getActiveAgents: () => request<{ active_tasks: Array<{ task_id: string; title: string; started_at: string }> }>(`${BACKEND_URL}/api/agent/active`),
   terminateAgent: (taskId: string) => request<{ ok: boolean; message: string }>(`${BACKEND_URL}/api/agent/terminate`, { method: "POST", body: JSON.stringify({ task_id: taskId }) }),
-  classifyTask: (message: string) => request<{ is_crawl: boolean }>(`${BACKEND_URL}/api/classify`, { method: "POST", body: JSON.stringify({ message }) }),
+  classifyTask: (message: string) => request<{ is_crawl: boolean; intent: string; university: string; departments: string[]; reason: string }>(`${BACKEND_URL}/api/classify`, { method: "POST", body: JSON.stringify({ message }) }),
+  getTaskSummary: (taskId: string) => request<import("@/lib/types").TaskSummary>(`${BACKEND_URL}/api/history/${taskId}/summary`),
   // ── 高校表格导出 ──
   exportUniversityTable: (name: string, task_id: string, file: string, formats: string[]) =>
     request<{ ok: boolean; files: Record<string, string> }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/export`, {

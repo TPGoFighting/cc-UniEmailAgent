@@ -30,18 +30,18 @@ export function SearchBar({ onSearch }: SearchBarProps) {
   }, []);
 
   return (
-    <div className="relative mx-3 mb-2">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
+    <div className="relative mx-4 mb-2">
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40" />
       <input
         value={value}
         onChange={handleChange}
         placeholder="搜索历史..."
-        className="w-full rounded-[24px] border border-transparent bg-black/[0.03] py-2 pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition-colors focus:border-border focus:bg-transparent dark:bg-white/[0.05] dark:focus:bg-transparent"
+        className="w-full rounded-xl border border-border/30 bg-primary/[0.02] py-2 pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none transition-all duration-250 focus:border-primary/30 focus:bg-primary/[0.04] focus:shadow-[0_0_12px_rgba(34,211,238,0.06)]"
       />
       {value && (
         <button
           onClick={handleClear}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground/50 hover:text-muted-foreground"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
         >
           <X className="size-3" />
         </button>

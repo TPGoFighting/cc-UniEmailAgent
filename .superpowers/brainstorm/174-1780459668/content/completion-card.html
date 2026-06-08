@@ -1,0 +1,147 @@
+<h2>任务完成 — 数据感知</h2>
+<p class="subtitle">左侧：当前只有下载链接（不知道结果） ｜ 右侧：内联数据摘要卡片</p>
+
+<div class="split">
+  <!-- 当前状态 -->
+  <div class="mockup" style="flex:0.8;">
+    <div class="mockup-header">当前：Agent 说完 + 下载链接</div>
+    <div class="mockup-body" style="padding:16px;background:#fff;">
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:#f3f4f6;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;border-radius:24px;border-top-left-radius:4px;background:rgba(0,0,0,0.03);padding:14px 20px;font-size:13px;color:rgba(0,0,0,0.75);line-height:1.6;">
+          已成功完成南京大学计算机科学与技术系教师邮箱抓取，共收集到教师信息，已生成下载文件。
+        </div>
+      </div>
+      <!-- 下载链接 x6 -->
+      <div style="margin-left:40px;display:flex;flex-wrap:wrap;gap:6px;">
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:24px;border:1px solid rgba(16,163,127,0.2);background:rgba(16,163,127,0.05);font-size:11px;color:#10A37F;">
+          <span style="font-weight:700;font-size:10px;background:rgba(16,163,127,0.15);padding:1px 5px;border-radius:3px;">CSV</span> 计算机科学与技术系_教师邮箱.csv
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:24px;border:1px solid rgba(16,163,127,0.2);background:rgba(16,163,127,0.05);font-size:11px;color:#10A37F;">
+          <span style="font-weight:700;font-size:10px;background:rgba(16,163,127,0.15);padding:1px 5px;border-radius:3px;">XLSX</span> 计算机科学与技术系_教师邮箱.xlsx
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:24px;border:1px solid rgba(16,163,127,0.2);background:rgba(16,163,127,0.05);font-size:11px;color:#10A37F;">
+          <span style="font-weight:700;font-size:10px;background:rgba(16,163,127,0.15);padding:1px 5px;border-radius:3px;">MD</span> ...md
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:24px;border:1px solid rgba(16,163,127,0.2);background:rgba(16,163,127,0.05);font-size:11px;color:#10A37F;">
+          <span style="font-weight:700;font-size:10px;background:rgba(16,163,127,0.15);padding:1px 5px;border-radius:3px;">HTML</span> ...html
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:24px;border:1px solid rgba(16,163,127,0.2);background:rgba(16,163,127,0.05);font-size:11px;color:#10A37F;">
+          <span style="font-weight:700;font-size:10px;background:rgba(16,163,127,0.15);padding:1px 5px;border-radius:3px;">PDF</span> ...pdf
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:24px;border:1px solid rgba(16,163,127,0.2);background:rgba(16,163,127,0.05);font-size:11px;color:#10A37F;">
+          <span style="font-weight:700;font-size:10px;background:rgba(16,163,127,0.15);padding:1px 5px;border-radius:3px;">DOCX</span> ...docx
+        </span>
+      </div>
+      <p style="margin-left:40px;margin-top:10px;font-size:10px;color:#ccc;">需要下载才知道到底抓了多少...</p>
+    </div>
+  </div>
+
+  <!-- 新方案 -->
+  <div class="mockup" style="flex:1.3;">
+    <div class="mockup-header">新方案：数据摘要卡片 + 下载链接</div>
+    <div class="mockup-body" style="padding:16px;background:#fff;">
+
+      <!-- 摘要卡片 -->
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:#f3f4f6;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;border-radius:24px;border-top-left-radius:4px;border:1px solid rgba(0,0,0,0.06);padding:16px;">
+          <!-- 统计数字 -->
+          <div style="display:flex;gap:20px;margin-bottom:14px;">
+            <div>
+              <div style="font-size:22px;font-weight:700;color:#111;">87</div>
+              <div style="font-size:10px;color:#6E6E80;margin-top:-1px;">教师总数</div>
+            </div>
+            <div>
+              <div style="font-size:22px;font-weight:700;color:#10A37F;">82</div>
+              <div style="font-size:10px;color:#6E6E80;margin-top:-1px;">有效邮箱</div>
+            </div>
+            <div style="border-left:1px solid rgba(0,0,0,0.06);padding-left:16px;">
+              <div style="font-size:22px;font-weight:700;color:#111;">94.3%</div>
+              <div style="font-size:10px;color:#6E6E80;margin-top:-1px;">覆盖率</div>
+            </div>
+            <div style="border-left:1px solid rgba(0,0,0,0.06);padding-left:16px;">
+              <div style="font-size:22px;font-weight:700;color:#111;">2</div>
+              <div style="font-size:10px;color:#6E6E80;margin-top:-1px;">学院数</div>
+            </div>
+          </div>
+
+          <!-- 学院分解 -->
+          <div style="margin-bottom:14px;">
+            <div style="font-size:11px;font-weight:600;color:rgba(0,0,0,0.5);margin-bottom:6px;">学院分布</div>
+            <div style="display:flex;gap:8px;">
+              <div style="flex:1;padding:8px 10px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);font-size:11px;">
+                <span style="font-weight:600;color:#111;">计算机系</span>
+                <span style="color:#6E6E80;margin-left:6px;">64人 / 60邮箱</span>
+                <div style="margin-top:4px;height:3px;background:rgba(0,0,0,0.06);border-radius:2px;">
+                  <div style="height:100%;width:94%;background:#10A37F;border-radius:2px;"></div>
+                </div>
+              </div>
+              <div style="flex:1;padding:8px 10px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);font-size:11px;">
+                <span style="font-weight:600;color:#111;">数学学院</span>
+                <span style="color:#6E6E80;margin-left:4px;">23人 / 22邮箱</span>
+                <div style="margin-top:4px;height:3px;background:rgba(0,0,0,0.06);border-radius:2px;">
+                  <div style="height:100%;width:96%;background:#10A37F;border-radius:2px;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 表格预览 -->
+          <div style="margin-bottom:14px;">
+            <div style="font-size:11px;font-weight:600;color:rgba(0,0,0,0.5);margin-bottom:6px;">数据预览（前 5 行）</div>
+            <div style="border-radius:12px;border:1px solid rgba(0,0,0,0.06);overflow:hidden;font-size:11px;">
+              <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                  <tr style="background:rgba(0,0,0,0.02);">
+                    <th style="padding:6px 10px;text-align:left;font-weight:600;color:rgba(0,0,0,0.5);border-bottom:1px solid rgba(0,0,0,0.06);">姓名</th>
+                    <th style="padding:6px 10px;text-align:left;font-weight:600;color:rgba(0,0,0,0.5);border-bottom:1px solid rgba(0,0,0,0.06);">学院</th>
+                    <th style="padding:6px 10px;text-align:left;font-weight:600;color:rgba(0,0,0,0.5);border-bottom:1px solid rgba(0,0,0,0.06);">职称</th>
+                    <th style="padding:6px 10px;text-align:left;font-weight:600;color:rgba(0,0,0,0.5);border-bottom:1px solid rgba(0,0,0,0.06);">邮箱</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);">周志华</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#6E6E80;">计算机系</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#6E6E80;">教授</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#10A37F;font-family:monospace;font-size:10px;">zhouzh@nju.edu.cn</td></tr>
+                  <tr><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);">张三</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#6E6E80;">计算机系</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#6E6E80;">副教授</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#10A37F;font-family:monospace;font-size:10px;">zhangsan@nju.edu.cn</td></tr>
+                  <tr><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);">李四</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#6E6E80;">计算机系</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:#6E6E80;">讲师</td><td style="padding:5px 10px;border-bottom:1px solid rgba(0,0,0,0.03);color:rgba(0,0,0,0.2);font-size:10px;">—</td></tr>
+                  <tr><td style="padding:5px 10px;">...</td><td style="padding:5px 10px;"></td><td style="padding:5px 10px;"></td><td style="padding:5px 10px;"></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 操作栏 -->
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <span style="padding:5px 12px;border-radius:24px;border:1px solid rgba(16,163,127,0.2);background:rgba(16,163,127,0.05);font-size:10px;color:#10A37F;font-weight:600;">📥 CSV</span>
+              <span style="padding:5px 12px;border-radius:24px;border:1px solid rgba(0,0,0,0.06);font-size:10px;color:#6E6E80;">XLSX</span>
+              <span style="padding:5px 12px;border-radius:24px;border:1px solid rgba(0,0,0,0.06);font-size:10px;color:#6E6E80;">MD</span>
+              <span style="padding:5px 12px;border-radius:24px;border:1px solid rgba(0,0,0,0.06);font-size:10px;color:#6E6E80;">+3</span>
+            </div>
+            <span style="font-size:10px;color:#6E6E80;">共 82 条 · 点击查看完整表格 →</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px;">后端新增 API</h3>
+<div class="mockup">
+  <div class="mockup-header">GET /api/history/{task_id}/summary</div>
+  <div class="mockup-body" style="padding:14px;">
+    <pre style="font-size:11px;font-family:mono;background:#1e1e2e;color:#cdd6f4;padding:14px;border-radius:8px;overflow-x:auto;line-height:1.6;">
+{
+  <span style="color:#94e2d5;">"total_teachers"</span>: 87,
+  <span style="color:#94e2d5;">"valid_emails"</span>: 82,
+  <span style="color:#94e2d5;">"coverage"</span>: 0.943,
+  <span style="color:#94e2d5;">"colleges"</span>: [
+    { <span style="color:#94e2d5;">"name"</span>: <span style="color:#a6e3a1;">"计算机科学与技术系"</span>, <span style="color:#94e2d5;">"total"</span>: 64, <span style="color:#94e2d5;">"with_email"</span>: 60 },
+    { <span style="color:#94e2d5;">"name"</span>: <span style="color:#a6e3a1;">"数学学院"</span>, <span style="color:#94e2d5;">"total"</span>: 23, <span style="color:#94e2d5;">"with_email"</span>: 22 }
+  ],
+  <span style="color:#94e2d5;">"preview_rows"</span>: [ ...5行数据... ],
+  <span style="color:#94e2d5;">"files"</span>: [{ <span style="color:#94e2d5;">"filename"</span>: ..., <span style="color:#94e2d5;">"ext"</span>: ..., <span style="color:#94e2d5;">"url"</span>: ... }]
+}
+</pre>
+  </div>
+</div>

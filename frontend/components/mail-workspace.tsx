@@ -214,7 +214,7 @@ export function MailWorkspace() {
                         <option value="">-- 选择有抓取结果的高校 --</option>
                         {schools.map((u) => (
                           <option key={u.name} value={u.name}>
-                            {u.name} (共 {u.records?.valid_email_count || 0} 邮箱)
+                            {u.name}
                           </option>
                         ))}
                       </select>

@@ -1,11 +1,16 @@
-"""技能库双向流转 — 前置读取 (注入 Prompt) + 后置反思 (经验沉淀)"""
+"""技能库双向流转 — 前置读取 (注入 Prompt) + 后置反思 (经验沉淀)
+
+v2: 按需加载（大学名匹配 Section）+ 智能写入去重（相似度校验）
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -14,46 +19,53 @@ SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 GLOBAL_RULES_FILE = SKILLS_DIR / "global_crawling_rules.md"
 CRAWL_KNOWLEDGE_FILE = SKILLS_DIR / "crawl_knowledge.md"
 
-# ── 数据结构 ──
+# ── 去重阈值 ──
+SIMILARITY_THRESHOLD = 0.55  # 相似度超过此值视为重复，跳过写入
+
+# ── 共享节标题关键词（总是保留的通用知识） ──
+_SHARED_SECTION_KEYWORDS = [
+    "核心数据规范", "输出格式", "数据清洗管道", "反爬邮箱恢复",
+    "导航链接黑名单", "姓名验证规则", "标准爬取流程",
+    "并行爬取脚本模板", "大学URL推断规则", "输出字段",
+    "文件名规范", "FILES", "声明格式",
+]
 
 STANDARD_HEADERS = ["院校名称", "教师姓名", "所在学院", "职称", "邮箱", "官网主页链接"]
 
 
 def _resolve_skills_dir() -> Path:
-    """返回技能目录，确保存在。"""
     SKILLS_DIR.mkdir(exist_ok=True)
     return SKILLS_DIR
 
 
 # ═══════════════════════════════════════════════════════════════
-# 前置读取：加载技能注入 System Prompt
+# 前置读取：按需加载，只注入目标大学相关的技能知识
 # ═══════════════════════════════════════════════════════════════
 
 def load_skills_prompt(university_name: str = "") -> str:
-    """前置读取技能库，返回要注入 Agent System Prompt 的经验知识文本。
+    """前置读取技能库，按大学名精准提取相关 Section。
 
-    按优先级合并：
-    1. crawl_knowledge.md（标准 Markdown 格式，含各校策略）
-    2. global_crawling_rules.md（踩坑记录，含正确流程）
-    3. 如果提供了大学名称，额外提取该校相关的 JSON 元数据摘要
+    优先级：
+    1. crawl_knowledge.md 中与 university_name 匹配的 Section
+    2. global_crawling_rules.md（全部，体积小）
+    3. 大学专属 JSON 元数据摘要
     """
     parts: list[str] = []
 
-    # 1. 读取标准技能汇总
+    # 1. 按需读取 crawl_knowledge.md
     if CRAWL_KNOWLEDGE_FILE.exists():
         try:
-            text = CRAWL_KNOWLEDGE_FILE.read_text(encoding="utf-8").strip()
-            # 去除 YAML frontmatter
-            if text.startswith("---"):
-                end = text.find("---", 3)
-                if end != -1:
-                    text = text[end + 3:].strip()
-            if text:
-                parts.append(text)
+            full_text = CRAWL_KNOWLEDGE_FILE.read_text(encoding="utf-8").strip()
+            if university_name:
+                extracted = _extract_relevant_sections(full_text, university_name)
+            else:
+                extracted = _strip_frontmatter(full_text)
+            if extracted:
+                parts.append(extracted)
         except OSError:
             pass
 
-    # 2. 读取全局规则（含踩坑记录）
+    # 2. 全局规则全文（体积可控，~2KB）
     if GLOBAL_RULES_FILE.exists():
         try:
             text = GLOBAL_RULES_FILE.read_text(encoding="utf-8").strip()
@@ -80,6 +92,163 @@ def load_skills_prompt(university_name: str = "") -> str:
     return header + "\n\n---\n\n".join(parts) + "\n\n"
 
 
+def _strip_frontmatter(text: str) -> str:
+    """去除 YAML frontmatter。"""
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end != -1:
+            text = text[end + 3:].strip()
+    return text
+
+
+def _extract_relevant_sections(full_text: str, university_name: str) -> str:
+    """从完整知识库中提取与目标大学相关的 Section。
+
+    策略：
+    - 文档前言和共享节（数据规范/清洗管道等）→ 全部保留
+    - 「已完成任务汇总」和「各高校详细爬取指南」→ 只提取匹配大学名的 ### 子节
+    """
+    text = _strip_frontmatter(full_text)
+
+    # 按 ## 级别大节拆分
+    sections = _split_top_sections(text)
+    if len(sections) <= 1:
+        return text  # 无法解析，返回全部
+
+    result_parts: list[str] = []
+    short_name = _uni_short_name(university_name)
+
+    for section in sections:
+        header = _section_header(section)
+
+        if not header:
+            # 前言 / 标题区 → 保留
+            result_parts.append(section)
+            continue
+
+        if _is_university_index_section(header):
+            # 大学索引节 → 只提取匹配的子节
+            filtered = _filter_subsections(section, university_name, short_name)
+            if filtered:
+                result_parts.append(filtered)
+        elif _is_reflection_section(header):
+            # 🏫 反思节 → 只保留匹配目标大学的
+            if _uni_matches_header(header, university_name, short_name):
+                result_parts.append(section)
+        elif _is_shared_section(header):
+            result_parts.append(section)
+        else:
+            # 未知节 → 保守保留（避免丢失新知识）
+            result_parts.append(section)
+
+    return "\n".join(result_parts)
+
+
+def _split_top_sections(text: str) -> list[str]:
+    """按 ## 级别标题拆分文档。"""
+    # 先找到第一个 ## 的位置，之前的是前言
+    first_h2 = re.search(r"\n## ", text)
+    if not first_h2:
+        return [text]
+
+    preamble = text[:first_h2.start()]
+    rest = text[first_h2.start():]
+
+    parts = [preamble] if preamble.strip() else []
+    # 按 \n## 拆分，保留分隔符
+    for sec in re.split(r"\n(?=## )", rest):
+        parts.append(sec)
+    return parts
+
+
+def _section_header(section: str) -> str:
+    """提取节的 ## 标题。"""
+    m = re.match(r"## (.+?)(?:\n|$)", section)
+    return m.group(1).strip() if m else ""
+
+
+def _is_university_index_section(header: str) -> bool:
+    """判断是否为大学索引节（需要按大学名过滤子节）。"""
+    return any(kw in header for kw in ["已完成任务", "各高校详细爬取指南", "各高校"])
+
+
+def _is_reflection_section(header: str) -> bool:
+    """判断是否为 🏫 反思节（后置反思自动写入的大学专属节）。"""
+    return "🏫" in header
+
+
+def _is_shared_section(header: str) -> bool:
+    """判断是否为共享节（对所有任务都有用）。"""
+    return any(kw in header for kw in _SHARED_SECTION_KEYWORDS)
+
+
+def _filter_subsections(section: str, university_name: str, short_name: str) -> str | None:
+    """从大学索引节中只保留匹配大学名的 ### 子节。"""
+    lines = section.split("\n")
+    result_lines: list[str] = []
+    in_matching_sub = False
+    current_sub_lines: list[str] = []
+
+    for line in lines:
+        if line.startswith("### "):
+            # 遇到新子节：先保存上一个
+            if in_matching_sub and current_sub_lines:
+                result_lines.extend(current_sub_lines)
+            # 检查新子节是否匹配
+            header_text = line[4:].strip()
+            current_sub_lines = [line]
+            in_matching_sub = _uni_matches_header(header_text, university_name, short_name)
+        elif line.startswith("## "):
+            # 遇到更高级别的标题，结束当前子节
+            if in_matching_sub:
+                result_lines.extend(current_sub_lines)
+            current_sub_lines = [line]
+            in_matching_sub = True  # 大节标题行保留
+        else:
+            current_sub_lines.append(line)
+
+    # 最后一个子节
+    if in_matching_sub and current_sub_lines:
+        result_lines.extend(current_sub_lines)
+
+    return "\n".join(result_lines) if result_lines else None
+
+
+def _uni_short_name(full_name: str) -> str:
+    """提取大学简称（如「南京大学」→「南大」）。"""
+    # 取前两个字作为简称（中国大学命名惯例）
+    m = re.match(r"([一-鿿]{2})", full_name)
+    return m.group(1) if m else full_name
+
+
+def _uni_matches_header(header: str, university_name: str, short_name: str) -> bool:
+    """判断子节标题是否匹配目标大学。"""
+    if not university_name:
+        return False
+    # 全名匹配
+    if university_name in header:
+        return True
+    # 简称匹配（如「南大」在「南京大学 (nju.edu.cn)」中）
+    if len(short_name) >= 2 and short_name in header:
+        return True
+    # 英文域名匹配
+    domain_hint = _uni_domain_hint(university_name)
+    if domain_hint and domain_hint in header.lower():
+        return True
+    return False
+
+
+def _uni_domain_hint(university_name: str) -> str:
+    """从大学名推断域名关键词。"""
+    mapping = {
+        "南京大学": "nju", "东南大学": "seu", "南京理工大学": "njust",
+        "南京航空航天大学": "nuaa", "南京邮电大学": "njupt",
+        "清华大学": "tsinghua", "北京大学": "pku", "浙江大学": "zju",
+        "复旦大学": "fudan", "上海交通大学": "sjtu", "北京邮电大学": "bupt",
+    }
+    return mapping.get(university_name, "")
+
+
 def _load_university_json_summary(university_name: str) -> str:
     """从大学专属 JSON 文件中提取摘要信息。"""
     lines: list[str] = []
@@ -102,7 +271,7 @@ def _load_university_json_summary(university_name: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 后置反思：分析日志 → 提取新策略 → 写入技能库
+# 后置反思：分析日志 → 提取新策略 → 去重写入技能库
 # ═══════════════════════════════════════════════════════════════
 
 _REFLECTION_SYSTEM_PROMPT = """你是一个爬虫经验分析师。请根据以下任务日志，总结出这次爬取中遇到的**新难点和解决策略**。
@@ -122,11 +291,10 @@ async def reflect_and_save(
     university_name: str,
     messages: list[dict],
 ) -> str | None:
-    """后置反思：用 LLM 分析任务日志，提取新经验并持久化到技能库。
+    """后置反思：用 LLM 分析任务日志，提取新经验 → 去重 → 持久化到技能库。
 
     返回写入的文件路径，若无需更新则返回 None。
     """
-    # 提取日志和关键内容
     log_text = _extract_relevant_logs(messages)
     if len(log_text) < 200:
         logger.info(f"[SkillManager] 任务 {task_id[:8]} 日志过短，跳过反思")
@@ -137,14 +305,17 @@ async def reflect_and_save(
         logger.warning("[SkillManager] 无 API Key，跳过反思总结")
         return None
 
-    # 调用 LLM 反思
     reflection = await _llm_reflection(api_key, university_name, log_text)
     if not reflection or "无新发现" in reflection:
         logger.info(f"[SkillManager] 任务 {task_id[:8]} 无新发现需要记录")
         return None
 
-    # 写入技能文件
-    return _write_reflection(task_id, university_name, reflection)
+    # 去重检查：与已有知识比较相似度
+    if _is_duplicate(reflection, university_name):
+        logger.info(f"[SkillManager] 任务 {task_id[:8]} 反思与已有知识高度重复，跳过写入")
+        return None
+
+    return await atomic_write_reflection(task_id, university_name, reflection)
 
 
 def _extract_relevant_logs(messages: list[dict]) -> str:
@@ -159,18 +330,15 @@ def _extract_relevant_logs(messages: list[dict]) -> str:
         role = m.get("role", "")
         msg_type = m.get("type", "")
 
-        # Agent 思考/工具调用日志
         if role in ("agent", "log") or msg_type in ("log", "agent", "text"):
             parts.append(content[:500])
-        # 错误信息
         elif role == "error" or msg_type == "error":
             parts.append(f"[ERROR] {content[:300]}")
 
-        # 只保留最近的日志（避免过长）
         if len(parts) > 80:
             break
 
-    return "\n---\n".join(parts[-60:])  # 只保留最近 60 条
+    return "\n---\n".join(parts[-60:])
 
 
 async def _llm_reflection(api_key: str, university_name: str, log_text: str) -> str | None:
@@ -207,23 +375,104 @@ async def _llm_reflection(api_key: str, university_name: str, log_text: str) -> 
         return None
 
 
-def _write_reflection(task_id: str, university_name: str, reflection: str) -> str | None:
-    """将反思结果写入技能文件。
+# ── 去重逻辑 ──
 
-    优先写入各校专属文件，再追加到通用技能汇总。
+def _is_duplicate(new_content: str, university_name: str) -> bool:
+    """检查新内容是否与已有知识高度重复。
+
+    将新内容拆为句子，与已有知识中该校相关段落做相似度比较。
     """
+    if not CRAWL_KNOWLEDGE_FILE.exists():
+        return False
+
+    try:
+        existing = CRAWL_KNOWLEDGE_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    # 提取该校已有的知识点段落
+    uni_sections = _extract_university_paragraphs(existing, university_name)
+    if not uni_sections:
+        return False
+
+    # 将新内容拆分为独立的知识点行
+    new_lines = [l.strip() for l in new_content.split("\n")
+                 if l.strip().startswith("- ") and "**" in l]
+    if not new_lines:
+        return False
+
+    # 逐条检查是否已有相似内容
+    duplicate_count = 0
+    for line in new_lines:
+        for para in uni_sections:
+            if SequenceMatcher(None, line, para).ratio() > SIMILARITY_THRESHOLD:
+                duplicate_count += 1
+                break
+
+    # 超过半数知识点重复 → 视为整体重复
+    return duplicate_count >= len(new_lines) * 0.5
+
+
+def _extract_university_paragraphs(text: str, university_name: str) -> list[str]:
+    """从知识库中提取与目标大学相关的段落。"""
+    sections = _split_top_sections(_strip_frontmatter(text))
+    short_name = _uni_short_name(university_name)
+    relevant_sections: list[str] = []
+
+    for sec in sections:
+        header = _section_header(sec)
+        if _is_university_index_section(header):
+            filtered = _filter_subsections(sec, university_name, short_name)
+            if filtered:
+                relevant_sections.append(filtered)
+        elif _is_reflection_section(header):
+            if _uni_matches_header(header, university_name, short_name):
+                relevant_sections.append(sec)
+
+    if not relevant_sections:
+        return []
+
+    # 拆分成段落（按空行分隔）
+    paragraphs: list[str] = []
+    for sec in relevant_sections:
+        for para in sec.split("\n\n"):
+            para = para.strip()
+            if len(para) > 30:  # 忽略过短段落
+                paragraphs.append(para)
+
+    return paragraphs
+
+
+# ── 写入逻辑 ──
+
+# 全局写入锁，防止并发写入技能文件造成数据损坏
+_SKILL_WRITE_LOCK = asyncio.Lock()
+
+
+def _safe_write(path: Path, content: str) -> None:
+    """临时文件 + 原子重命名写入，防止写入中断导致文件损坏。"""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)  # 原子替换
+
+
+async def atomic_write_reflection(task_id: str, university_name: str, reflection: str) -> str | None:
+    """带锁保护的反思写入入口。"""
+    async with _SKILL_WRITE_LOCK:
+        return _write_reflection(task_id, university_name, reflection)
+
+
+def _write_reflection(task_id: str, university_name: str, reflection: str) -> str | None:
+    """将反思结果写入技能文件。"""
     _resolve_skills_dir()
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     section = f"\n\n## 🏫 {university_name} — {ts}（任务 {task_id[:8]}）\n\n{reflection}\n"
 
-    # 1. 写入/追加到 crawl_knowledge.md
     try:
         if CRAWL_KNOWLEDGE_FILE.exists():
             existing = CRAWL_KNOWLEDGE_FILE.read_text(encoding="utf-8")
-            # 检查是否已有该校记录，有则追加到该节下，无则新开一节
             if f"## 🏫 {university_name}" in existing:
-                # 在该校最后一个 section 后追加
                 pattern = rf"(## 🏫 {re.escape(university_name)}.*?)(?=\n## 🏫 |\Z)"
                 updated = re.sub(pattern, rf"\1{section}", existing, count=1, flags=re.DOTALL)
             else:
@@ -236,13 +485,12 @@ def _write_reflection(task_id: str, university_name: str, reflection: str) -> st
                 + section
             )
 
-        CRAWL_KNOWLEDGE_FILE.write_text(updated, encoding="utf-8")
+        _safe_write(CRAWL_KNOWLEDGE_FILE, updated)
         logger.info(f"[SkillManager] 反思已写入: {CRAWL_KNOWLEDGE_FILE.name}")
     except OSError as e:
         logger.error(f"[SkillManager] 写入失败: {e}")
         return None
 
-    # 2. 同时更新任务专属 JSON（保留元数据追溯）
     _update_skill_json(task_id, university_name, reflection)
 
     return str(CRAWL_KNOWLEDGE_FILE)
@@ -284,10 +532,7 @@ def get_data_schema_prompt() -> str:
 
 
 def get_task_isolation_prompt(task_id: str, inherited_task_id: str = "") -> str:
-    """返回任务隔离红线的 prompt 注入。
-
-    inherited_task_id: 增量任务允许读取的历史任务 ID。
-    """
+    """返回任务隔离红线的 prompt 注入（与 CRAWL_STRATEGY_PROMPT 互补的快速提醒）。"""
     allowed_dirs = [f"outputs/{task_id}"]
     if inherited_task_id:
         safe = inherited_task_id.replace("/", "_").replace("\\", "_")
@@ -295,13 +540,31 @@ def get_task_isolation_prompt(task_id: str, inherited_task_id: str = "") -> str:
 
     dirs_str = "、".join(f"`{d}`" for d in allowed_dirs)
     return (
-        "## 🚫 任务隔离红线（必须严格遵守）\n\n"
-        f"本任务的专属输出目录为 `outputs/{task_id}/`。\n\n"
-        f"**文件读写权限**：你只能读取和写入以下目录中的文件：{dirs_str}\n\n"
-        "**严禁**：\n"
-        "- 扫描 `outputs/` 根目录\n"
-        "- 读取其他学校的 CSV/XLSX/JSON 数据文件\n"
-        "- 使用 `glob` / `rglob` 或 `ls` 遍历 `outputs/` 的全部子目录\n"
-        "- 读取 `skills/` 中的其他学校专属 JSON 文件中的数据内容\n\n"
-        "**正确做法**：直接指定 `outputs/{task_id}/文件名.csv` 进行读写。\n"
+        "## 🔒 工作目录确认\n\n"
+        f"本任务专属目录：`outputs/{task_id}/`\n"
+        f"可读写范围：{dirs_str}\n"
+        "重申：不要用 Glob 遍历整个 outputs/，只在自己的目录下操作。\n"
+    )
+
+
+def get_post_task_prompt() -> str:
+    """返回任务完成后的自我反思与技能更新指令。"""
+    return (
+        "## 🧠 任务完成后必须执行的收尾步骤\n\n"
+        "收到 done 事件后，在关闭会话前必须完成：\n\n"
+        "1. **回顾反思**：回顾本次爬取过程，提取新的发现和教训\n"
+        "2. **读取技能库**：读取 `skills/crawl_knowledge.md`，了解现有知识\n"
+        "3. **判断是否更新**：\n"
+        "   - 有新的 URL 模式、选择器规则、反爬策略、邮箱格式 → 追加新章节\n"
+        "   - 与已有知识重复 → 跳过（回复「无新发现」）\n"
+        "4. **追加格式**（当有新发现时）：\n"
+        "   ```\n"
+        "   ## 🏫 {大学名} — {日期}\n\n"
+        "   - **URL 模式**: <描述官网教师页面 URL 规律>\n"
+        "   - **关键选择器**: <列出有效的 CSS 选择器>\n"
+        "   - **踩坑记录**: <遇到的坑和解决方案>\n"
+        "   - **邮箱特征**: <该校邮箱的域名规律>\n"
+        "   ```\n"
+        "5. **使用 Edit 工具将新章节追加到 skills/crawl_knowledge.md 末尾**\n\n"
+        "**目的**：让后续任务能复用本次爬取经验，避免重复踩坑。\n"
     )

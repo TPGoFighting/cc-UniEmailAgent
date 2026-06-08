@@ -1,0 +1,195 @@
+<h2>侧边栏任务项布局 — 哪种最清晰？</h2>
+<p class="subtitle">当前 260px 侧边栏，需要展示：图标、标题、日期、状态、可选跳转按钮、悬停操作按钮。要求无遮挡、信息完整、美观。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">方案 A: 极简单行 + 右键菜单</div>
+    <div class="mockup-body">
+      <div style="width:236px;font-family:system-ui;font-size:13px;display:flex;flex-direction:column;gap:4px;">
+        <!-- Header -->
+        <p style="font-size:10px;color:#9A9AA5;padding:4px 8px;margin:0 0 2px 0;">今天</p>
+        <!-- Item 1 -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;background:rgba(0,0,0,0.06);cursor:pointer;">
+          <span style="color:#10A37F;font-size:14px;">&#10003;</span>
+          <span style="flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">抓取南京大学计算机学院教师邮箱</span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#10A37F;flex-shrink:0;"></span>
+        </div>
+        <!-- Item 2 -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#f59e0b;font-size:14px;animation:pulse 1.5s infinite;">&#8635;</span>
+          <span style="flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">增量补充东南大学信息学院</span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></span>
+        </div>
+        <!-- Item 3 -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#6366f1;font-size:14px;">&#128172;</span>
+          <span style="flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">帮我分析一下南京大学的教师邮箱数据</span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#6366f1;flex-shrink:0;"></span>
+        </div>
+        <p style="font-size:10px;color:#9A9AA5;padding:8px 8px 4px 8px;margin:0;">昨天</p>
+        <!-- Item 4 -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#ef4444;font-size:14px;">&#10007;</span>
+          <span style="flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">抓取南京理工大学机械学院教师</span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#ef4444;flex-shrink:0;"></span>
+        </div>
+        <!-- 右键提示 -->
+        <p style="font-size:9px;color:#9A9AA5;text-align:center;margin-top:8px;">右键任务项：重命名 / 置顶 / 删除 / 跳转高校库</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">方案 B: 两行卡片 + 常驻操作栏</div>
+    <div class="mockup-body">
+      <div style="width:236px;font-family:system-ui;font-size:13px;display:flex;flex-direction:column;gap:6px;">
+        <p style="font-size:10px;color:#9A9AA5;padding:4px 8px;margin:0 0 2px 0;">今天</p>
+        <!-- Item 1 -->
+        <div style="border-radius:16px;padding:10px 12px 8px 12px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.06);cursor:pointer;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">
+            <span style="color:#10A37F;font-size:14px;flex-shrink:0;">&#10003;</span>
+            <span style="font-weight:500;line-height:1.4;">抓取南京大学计算机学院教师邮箱</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:10px;color:#9A9AA5;">06-03</span>
+              <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#dcfce7;color:#16a34a;">有数据</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:2px;">
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="置顶">&#128204;</span>
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="重命名">&#9998;</span>
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="删除">&#128465;</span>
+            </div>
+          </div>
+        </div>
+        <!-- Item 2 -->
+        <div style="border-radius:16px;padding:10px 12px 8px 12px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.06);cursor:pointer;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">
+            <span style="color:#f59e0b;font-size:14px;flex-shrink:0;">&#8635;</span>
+            <span style="font-weight:500;line-height:1.4;">增量补充东南大学信息学院</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:10px;color:#9A9AA5;">06-03</span>
+              <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#fef3c7;color:#d97706;">运行中</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:2px;">
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="置顶">&#128204;</span>
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="重命名">&#9998;</span>
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="删除">&#128465;</span>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:10px;color:#9A9AA5;padding:8px 8px 4px 8px;margin:0;">昨天</p>
+        <!-- Item 3 -->
+        <div style="border-radius:16px;padding:10px 12px 8px 12px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.06);cursor:pointer;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">
+            <span style="color:#ef4444;font-size:14px;flex-shrink:0;">&#10007;</span>
+            <span style="font-weight:500;line-height:1.4;">抓取南京理工大学机械学院教师</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:10px;color:#9A9AA5;">06-02</span>
+              <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#fef2f2;color:#dc2626;">失败</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:2px;">
+              <span style="font-size:9px;padding:2px 6px;border-radius:6px;border:1px solid rgba(0,0,0,0.08);cursor:pointer;color:#6E6E80;display:flex;align-items:center;gap:2px;">&#127760; 高校库</span>
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="置顶">&#128204;</span>
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="重命名">&#9998;</span>
+              <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;" title="删除">&#128465;</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split" style="margin-top:24px;">
+  <div class="mockup">
+    <div class="mockup-header">方案 C: 悬停展开式（紧凑行 + 展开下拉）</div>
+    <div class="mockup-body">
+      <div style="width:236px;font-family:system-ui;font-size:13px;display:flex;flex-direction:column;gap:2px;">
+        <p style="font-size:10px;color:#9A9AA5;padding:4px 8px;margin:0;">今天</p>
+        <!-- Item 1 (collapsed) -->
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#10A37F;font-size:13px;">&#10003;</span>
+          <span style="flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">抓取南京大学计算机学院教师邮箱</span>
+        </div>
+        <!-- Item 2 (expanded on hover) -->
+        <div style="border-radius:16px;padding:10px 12px;background:rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.12);cursor:pointer;position:relative;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:2px;">
+            <span style="color:#f59e0b;font-size:13px;flex-shrink:0;">&#8635;</span>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;font-size:12px;line-height:1.4;">增量补充东南大学信息科学与工程学院</div>
+            </div>
+          </div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:6px;padding-left:21px;">
+            <span style="font-size:10px;color:#9A9AA5;">06-03</span>
+            <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#fef3c7;color:#d97706;">运行中</span>
+            <span style="flex:1;"></span>
+            <span style="font-size:9px;padding:2px 6px;border-radius:6px;border:1px solid rgba(0,0,0,0.1);cursor:pointer;color:#6E6E80;">&#127760;</span>
+            <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;">&#128204;</span>
+            <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;">&#9998;</span>
+            <span style="padding:4px;border-radius:6px;cursor:pointer;color:#9A9AA5;font-size:12px;">&#128465;</span>
+          </div>
+        </div>
+        <p style="font-size:10px;color:#9A9AA5;padding:8px 8px 4px 8px;margin:0;">昨天</p>
+        <!-- Item 3 (collapsed) -->
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#6366f1;font-size:13px;">&#128172;</span>
+          <span style="flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">帮我分析一下南京大学的教师邮箱数据</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">方案 D: 混合模式（推荐）</div>
+    <div class="mockup-body">
+      <div style="width:236px;font-family:system-ui;font-size:13px;display:flex;flex-direction:column;gap:4px;">
+        <p style="font-size:10px;color:#9A9AA5;padding:4px 8px;margin:0;">今天</p>
+        <!-- Item 1 (active, expanded) -->
+        <div style="border-radius:16px;background:rgba(0,0,0,0.06);cursor:pointer;overflow:hidden;">
+          <div style="padding:10px 12px;">
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="color:#10A37F;font-size:14px;flex-shrink:0;margin-top:1px;">&#10003;</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:12px;line-height:1.45;">抓取南京大学计算机学院教师邮箱</div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;">
+                  <span style="font-size:10px;color:#9A9AA5;">06-03</span>
+                  <span style="font-size:9px;padding:1px 7px;border-radius:10px;background:#dcfce7;color:#16a34a;">&#10003; 87人</span>
+                  <span style="font-size:9px;padding:2px 7px;border-radius:6px;border:1px solid rgba(0,0,0,0.08);cursor:pointer;color:#6E6E80;margin-left:auto;">&#127760; 高校库</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 底部操作栏（仅活跃/悬停显示） -->
+          <div style="display:flex;align-items:center;gap:2px;justify-content:flex-end;padding:4px 12px 6px 12px;border-top:1px solid rgba(0,0,0,0.04);">
+            <span style="font-size:10px;padding:4px 8px;border-radius:4px;cursor:pointer;color:#6E6E80;">&#128204; 置顶</span>
+            <span style="font-size:10px;padding:4px 8px;border-radius:4px;cursor:pointer;color:#6E6E80;">&#9998; 重命名</span>
+            <span style="font-size:10px;padding:4px 8px;border-radius:4px;cursor:pointer;color:#ef4444;">&#128465; 删除</span>
+          </div>
+        </div>
+        <!-- Item 2 (collapsed, not active) -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#f59e0b;font-size:14px;flex-shrink:0;">&#8635;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">增量补充东南大学信息学院</span>
+          <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#fef3c7;color:#d97706;flex-shrink:0;">运行中</span>
+        </div>
+        <p style="font-size:10px;color:#9A9AA5;padding:8px 8px 4px 8px;margin:0;">昨天</p>
+        <!-- Item 3 (collapsed) -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#6366f1;font-size:14px;flex-shrink:0;">&#128172;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">帮我分析一下南京大学的教师邮箱数据</span>
+        </div>
+        <!-- Item 4 (collapsed) -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:24px;cursor:pointer;">
+          <span style="color:#ef4444;font-size:14px;flex-shrink:0;">&#10007;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">抓取南京理工大学机械学院教师</span>
+          <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#fef2f2;color:#dc2626;flex-shrink:0;">失败</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

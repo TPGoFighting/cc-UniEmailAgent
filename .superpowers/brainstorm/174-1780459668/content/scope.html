@@ -1,0 +1,47 @@
+<h2>UX 优化 — 优先级排序</h2>
+<p class="subtitle">选出你最关心的 2-3 个方向，我们逐个深入</p>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="streaming" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>流式反馈体验</h3>
+      <p>爬取任务中用户看到的是一片空白 + TypingIndicator，没有结构化进度（"正在访问计算机学院 → 找到 45 位教师 → 提取邮箱中..."）、数据分析任务也没有打字动画反馈</p>
+    </div>
+  </div>
+  <div class="option" data-choice="completion" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>任务完成后的数据感知</h3>
+      <p>任务完成后只显示下载链接，没有内联数据预览（表格片段、统计摘要）。用户需要下载文件才能看到"到底抓了多少人、邮箱覆盖率多少"</p>
+    </div>
+  </div>
+  <div class="option" data-choice="task-mgmt" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>侧边栏任务管理</h3>
+      <p>任务列表缺乏状态可视化和筛选能力。所有任务看起来一样，没有运行中/失败/成功的视觉区分，没有按日期/状态/大学分组</p>
+    </div>
+  </div>
+  <div class="option" data-choice="cross-panel" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>跨面板联动</h3>
+      <p>高校库、邮件发送和聊天是三个独立的 Sheet，彼此没有联动。不能右键高校 → "补充数据"，不能在邮件面板引用聊天结果</p>
+    </div>
+  </div>
+  <div class="option" data-choice="polish" onclick="toggleSelect(this)">
+    <div class="letter">5</div>
+    <div class="content">
+      <h3>交互细节打磨</h3>
+      <p>键盘快捷键、深色模式一致性、移动端适配、消息操作撤销、Toast 通知、连接状态提示等细节</p>
+    </div>
+  </div>
+  <div class="option" data-choice="onboarding" onclick="toggleSelect(this)">
+    <div class="letter">6</div>
+    <div class="content">
+      <h3>新手引导与智能提示</h3>
+      <p>Empty state 的推荐 prompt 是写死的，不根据已有数据动态推荐。首次使用缺乏引导，用户不知道系统能做什么</p>
+    </div>
+  </div>
+</div>

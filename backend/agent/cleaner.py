@@ -17,6 +17,8 @@ import logging
 from pathlib import Path
 from collections import defaultdict
 
+from constants import is_valid_email_format, is_admin_or_public_email, EMAIL_RE as STD_EMAIL_RE
+
 logger = logging.getLogger(__name__)
 
 # 导航关键词 — 匹配到说明姓名是导航文字碎片
@@ -39,11 +41,90 @@ ADMIN_EMAIL_PREFIXES = [
 
 # 姓名黑名单 — 精确匹配，这些肯定不是人名
 NAME_BLACKLIST = {
-    "师德师", "师资队", "现任教", "学院概", "管理架", "系科设", "教研机",
+    # 导航/页面UI文字
+    "首页", "上一页", "下一页", "末页", "返回", "更多", "详情", "查看", "下载",
+    "搜索", "登录", "注册", "退出", "提交", "重置", "保存", "取消", "关闭",
+    "网站首页", "网站地图", "站点地图", "友情链接", "版权信息", "版权所有",
+    "隐私政策", "法律声明", "网站声明", "访问统计", "技术支持", "网站管理",
+    "English", "English Version", "中文版", "EN", "CN",
+
+    # 学院子页标题
+    "学院概", "师资队", "现任教", "管理架", "系科设", "教研机",
     "新闻公", "通知公", "各类公", "招生培", "本科生", "研究生", "社会培",
     "留学生", "教学科", "实验教", "图书资", "博士后", "访问学",
+    "学院概况", "学院简介", "学院新闻", "通知公告", "学院通知",
+    "学科建设", "学科介绍", "学科方向", "重点学科", "特色学科",
+    "人才培养", "培养方案", "教学管理", "课程建设", "实践教学",
+    "科学研究", "科研平台", "科研成果", "科研项目", "学术活动",
+    "招生就业", "招生信息", "就业信息", "学生工作", "党团建设",
+    "党建工作", "党群工作", "工会工作", "校友工作", "校友风采",
+    "国际合作", "交流合作", "对外交流", "社会服务",
+    "规章制度", "政策文件", "办事指南", "下载中心",
+    "学院领导", "机构设置", "组织机构", "行政机构", "教辅机构",
+    "专业设置", "专业介绍", "课程设置", "实验中心",
+    "教师名录", "全体教师", "在职教师", "退休教师", "教师风采",
+    "教师简介", "教师队伍", "教师信息", "教师列表",
+    "客座教授", "兼职教授", "校外导师", "企业导师", "行业导师",
+    "讲座教授", "名誉教授", "特聘教授", "讲座预告",
+    # 职称级导航词（非人名，在导航页被误当教师姓名）
+    "教授", "副教授", "讲师", "助教", "实验师",
+    "高级实验师", "工程师", "高级工程师", "研究员", "副研究员",
+    "助理研究员", "见习", "实习",
+    "学术报告", "学术讲座", "科研团队", "创新团队",
+    "教学团队", "精品课程", "一流课程", "课程大纲",
+
+    # 常见非人名字段
     "南京大", "北京大", "清华大", "复旦大", "浙江大", "武汉大",
-    "书记信箱", "院长信箱", "联系我们",
+    "书记信箱", "院长信箱", "联系我们", "关于我们",
+    "师德师", "党员风", "创先争", "十九大", "二十",
+    "德育工", "心理健", "资助体", "学风建", "安全稳",
+    "年度考", "职称评", "岗位聘", "考核办", "人事处",
+    "教务处", "科研处", "研究生", "学生处", "财务处",
+    "图书馆", "档案馆", "校医院", "后勤处", "保卫处",
+    "实验室", "会议室", "报告厅", "体育馆", "运动场",
+    "校历", "班车", "电话", "地址", "邮编", "邮箱",
+
+    # 英文导航/UI
+    "Home", "About", "Contact", "Faculty", "Staff", "Research",
+    "Teaching", "Admissions", "News", "Events", "Calendar",
+    "Students", "Alumni", "Giving", "Jobs", "Careers", "Links",
+    "Sitemap", "Privacy", "Terms", "Help", "FAQ", "Support",
+    "Login", "Register", "Search", "Site Map", "Campus Map",
+    "Directory", "People", "Department", "Programs", "Degrees",
+    "Courses", "Academics", "Administration", "Services",
+    "Resources", "Downloads", "Gallery", "Video", "Media",
+    "Quick Links", "Useful Links", "Related Links",
+
+    # 碎片文字
+    "您现在", "当前位", "您的位", "位置：", "您现",
+    "共", "条记", "每页", "显示", "总访", "今日",
+    "您是第", "已有", "人访", "更新", "发布", "日期",
+    "时间", "作者", "来源", "点击", "次数", "人气",
+    "字号", "大中", "小", "打印", "分享", "推荐",
+    "相关", "标签", "分类", "归档", "热文",
+    "公告", "公示", "通知", "动态", "快讯", "简报",
+
+    # 页面底部/页眉
+    "设为首页", "加入收藏", "网站导航", "帮助信息",
+    "管理入口", "信息门户", "办公系统", "教务系统",
+    "邮箱系统", "VPN", "WebVPN", "信息办",
+    "建议", "意见", "反馈", "投诉", "咨询",
+}
+
+# 导航列表页 URL 模式 — 匹配到的页面即使有邮箱也不属于教师数据
+NAV_LIST_URL_PATTERNS = [
+    r'/list\.(htm|html|shtml)$',
+    r'/index\.(htm|html|shtml)$',
+    r'/main\.htm$',
+    r'/news/', r'/notice/', r'/announcement/',
+    r'/contact/', r'/links/', r'/map/',
+]
+
+# 学术邮箱域名白名单
+ACADEMIC_DOMAIN_WHITELIST = {
+    ".edu.cn", ".edu", ".ac.cn", ".ac.",
+    # 部分高校使用 .org / .com / .net 但属于学术用途
+    ".org.cn", ".org",
 }
 
 
@@ -52,6 +133,28 @@ def is_admin_email(email: str) -> bool:
     email_lower = email.lower().strip()
     for prefix in ADMIN_EMAIL_PREFIXES:
         if email_lower.startswith(prefix + "@"):
+            return True
+    return False
+
+
+def is_nav_list_url(url: str) -> bool:
+    """检测 URL 是否为导航列表页（而非教师详情页）。"""
+    if not url:
+        return False
+    url_lower = url.lower().strip()
+    for pattern in NAV_LIST_URL_PATTERNS:
+        if re.search(pattern, url_lower):
+            return True
+    return False
+
+
+def is_academic_domain(email: str) -> bool:
+    """检测邮箱域名是否在教育/学术白名单内。"""
+    if not email or "@" not in email:
+        return True  # 空邮箱跳过检查
+    domain = email.strip().lower().split("@")[-1]
+    for allowed in ACADEMIC_DOMAIN_WHITELIST:
+        if domain.endswith(allowed) or domain == allowed:
             return True
     return False
 
@@ -81,11 +184,8 @@ def is_valid_person_name(name: str) -> bool:
 
 
 def is_valid_email_format(email: str) -> bool:
-    """校验邮箱格式。"""
-    return bool(re.match(
-        r"^[a-zA-Z0-9][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$",
-        email.strip(),
-    ))
+    """校验邮箱格式（统一从 constants 导入的正则）。"""
+    return bool(STD_EMAIL_RE.match(email.strip()))
 
 
 def is_clean_title(title: str) -> bool:
@@ -140,14 +240,18 @@ def clean_records(records: list[dict]) -> list[dict]:
     2. 姓名验证（过滤导航文字）
     3. 邮箱格式验证
     4. 排除学院公共邮箱
-    5. 按邮箱去重（保留信息最全的）
-    6. 职称清洗
+    5. 域名白名单校验（仅保留教育/学术邮箱）
+    6. 无邮箱 + 列表页 URL → 跳过
+    7. 按邮箱去重（保留信息最全的）
+    8. 职称清洗
     """
     stats = {
         "total": len(records),
         "bad_name": 0,
         "bad_email_format": 0,
         "admin_email": 0,
+        "bad_domain": 0,
+        "nav_list_no_email": 0,
         "deduped": 0,
         "bad_title": 0,
         "cleaned": 0,
@@ -175,6 +279,19 @@ def clean_records(records: list[dict]) -> list[dict]:
     before_admin = len(records)
     records = [r for r in records if not is_admin_email(r["email"])]
     stats["admin_email"] = before_admin - len(records)
+
+    # 第5步：邮箱域名白名单校验（仅保留教育/学术域名邮箱，空邮箱跳过）
+    before_domain = len(records)
+    records = [r for r in records if not r["email"] or is_academic_domain(r["email"])]
+    stats["bad_domain"] = before_domain - len(records)
+
+    # 第6步：无邮箱 + 列表页 URL → 跳过（导航页不可能有教师数据）
+    before_nav = len(records)
+    records = [
+        r for r in records
+        if r["email"] or not is_nav_list_url(r.get("url", ""))
+    ]
+    stats["nav_list_no_email"] = before_nav - len(records)
 
     # 第5步：按邮箱去重（保留信息最全的 — 有姓名+职称优先）
     # 同时记录无邮箱的条目（空邮箱也保留，但只保留最新的一个）
@@ -215,7 +332,7 @@ def clean_records(records: list[dict]) -> list[dict]:
     stats["deduped"] = len(records) - len(deduped)
     records = deduped
 
-    # 第6步：职称清洗
+    # 第8步：职称清洗
     for r in records:
         if r["title"] and not is_clean_title(r["title"]):
             stats["bad_title"] += 1

@@ -1,0 +1,101 @@
+<h2>可发现性设计 v2</h2>
+<p class="subtitle">修正：文字对比度 + 去除重复操作入口</p>
+
+<!-- 方案1: 高校库 - 修正 -->
+<h3>高校库：仅保留 ⋮ 操作按钮</h3>
+<div class="mockup">
+  <div class="mockup-header">每行一个 ⋮ 按钮，点击/右键弹出完整菜单。补充是最常用操作，排在第一位</div>
+  <div class="mockup-body" style="padding:16px;background:#fff;">
+
+    <!-- 首次引导 -->
+    <div style="margin-bottom:14px;padding:10px 14px;border-radius:12px;background:rgba(16,163,127,0.04);border:1px solid rgba(16,163,127,0.12);display:flex;align-items:center;gap:10px;font-size:11px;color:#111;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10A37F" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <span>点击 <strong>⋮</strong> 按钮或右键高校名称，可快速发起抓取任务</span>
+      <span style="margin-left:auto;cursor:pointer;font-size:10px;color:#6E6E80;flex-shrink:0;">✕ 关闭</span>
+    </div>
+
+    <!-- 高校行 -->
+    <div style="padding:10px 12px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <span style="font-size:13px;font-weight:500;color:#111;">南京大学</span>
+        <span style="margin-left:6px;font-size:10px;color:#6E6E80;">江苏 · 南京</span>
+        <span style="margin-left:6px;font-size:10px;color:#10A37F;font-weight:600;">2 份数据</span>
+      </div>
+      <!-- 唯一操作入口 -->
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer;" title="更多操作">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6E6E80" stroke-width="2"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+      </span>
+    </div>
+
+    <!-- 弹出菜单 -->
+    <div style="margin-left:auto;width:fit-content;border-radius:10px;border:1px solid rgba(0,0,0,0.08);background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.08);overflow:hidden;">
+      <div style="padding:8px 14px;font-size:11px;display:flex;align-items:center;gap:8px;cursor:pointer;border-bottom:1px solid rgba(0,0,0,0.04);color:#111;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10A37F" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        补充缺失数据 → 跳转聊天
+      </div>
+      <div style="padding:8px 14px;font-size:11px;display:flex;align-items:center;gap:8px;cursor:pointer;border-bottom:1px solid rgba(0,0,0,0.04);color:#111;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6E6E80" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        重新全量抓取 → 跳转聊天
+      </div>
+      <div style="padding:8px 14px;font-size:11px;display:flex;align-items:center;gap:8px;cursor:pointer;color:#111;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6E6E80" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        查看数据详情
+      </div>
+    </div>
+
+    <p style="margin-top:4px;font-size:10px;color:#6E6E80;">右键高校名称也可打开相同菜单</p>
+  </div>
+</div>
+
+<!-- 方案2: 侧边栏 - 修正 -->
+<h3 style="margin-top:24px;">侧边栏：常驻跳转图标 + tooltip（修正对比度）</h3>
+<div class="mockup">
+  <div class="mockup-header">任务项右侧始终可见跳转按钮</div>
+  <div class="mockup-body" style="padding:16px;background:#F7F7F8;">
+
+    <div style="padding:8px 10px;border-radius:12px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:12px;font-weight:500;color:#111;">南京大学计算机系</span>
+        <span style="padding:1px 5px;border-radius:4px;background:rgba(16,163,127,0.08);font-size:9px;color:#10A37F;">87人</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;position:relative;">
+        <!-- 跳转按钮 -->
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;cursor:pointer;border:1px solid rgba(0,0,0,0.06);" title="在高校库中查看南京大学">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6E6E80" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </span>
+        <!-- tooltip -->
+        <div style="position:absolute;right:0;top:-30px;padding:5px 10px;border-radius:8px;background:#1e1e2e;color:#fff;font-size:10px;white-space:nowrap;pointer-events:none;">
+          在高校库中查看
+          <div style="position:absolute;bottom:-4px;right:8px;width:8px;height:8px;background:#1e1e2e;transform:rotate(45deg);"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:8px 10px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:12px;font-weight:500;color:#111;">北大数学学院教师</span>
+        <span style="padding:1px 5px;border-radius:4px;background:rgba(59,130,246,0.08);font-size:9px;color:#2563eb;">分析</span>
+      </div>
+      <!-- 无关联数据 -->
+      <span style="font-size:9px;color:#6E6E80;">无关联数据</span>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px;">对比度修正清单</h3>
+<div class="section" style="font-size:12px;line-height:1.8;">
+  <div style="display:flex;gap:16px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:200px;padding:12px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);">
+      <span class="label">灰色文本</span><br>
+      <span style="color:#6E6E80;">#6E6E80 — 说明文字 / 次要信息</span><br>
+      <span style="color:#9A9AA5;">#9A9AA5 — placeholder / 禁用态</span><br>
+      <span style="color:#ccc;">之前的 rgba(0,0,0,0.2) — 太浅，已全部替换</span>
+    </div>
+    <div style="flex:1;min-width:200px;padding:12px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);">
+      <span class="label">操作入口简化</span><br>
+      之前：补充按钮 + ⋮ 按钮（重复）<br>
+      现在：仅 ⋮ 按钮，补充作为菜单第一项<br>
+      补充是最常用操作，排在菜单顶部
+    </div>
+  </div>
+</div>

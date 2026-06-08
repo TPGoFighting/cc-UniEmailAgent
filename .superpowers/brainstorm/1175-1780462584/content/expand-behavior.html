@@ -1,0 +1,19 @@
+<h2>折叠项的交互行为</h2>
+<p class="subtitle">非活跃任务在鼠标悬停时，要不要也展开操作栏？</p>
+
+<div class="options">
+  <div class="option" data-choice="click-only" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>仅点击展开</h3>
+      <p>折叠项 hover 只改变背景色，点击选中后才展开为完整卡片。最干净，减少误触。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="hover-expand" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Hover 也展开操作栏</h3>
+      <p>折叠项 hover 时在下方浮出操作栏（置顶/重命名/删除），但标题保持截断。操作更便捷。</p>
+    </div>
+  </div>
+</div>

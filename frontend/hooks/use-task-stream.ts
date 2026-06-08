@@ -5,7 +5,29 @@ import { getWsManager } from "@/services/websocket";
 import { api } from "@/services/api";
 import { useChatStore } from "@/stores/chat-store";
 import { isCrawlTask } from "@/services/classify";
-import type { ComposerState } from "@/lib/types";
+import type { ComposerState, CollegeStage } from "@/lib/types";
+
+/** 占位符消息集合（与 onText、onDone 三处共用） */
+const PLACEHOLDER_PATTERNS = [
+  "正在连接后端…准备爬取任务",
+  "正在连接后端…准备增量补充",
+  "正在连接后端...",
+  "正在分析数据…",
+  "正在思考中...",
+  "",
+];
+
+/** 桌面通知（仅在 document.hidden 时发送） */
+function notify(title: string, body: string) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  if (!document.hidden) return;
+  try {
+    new Notification(title, { body, icon: "/logo.png" });
+  } catch {
+    // 忽略通知失败
+  }
+}
 
 interface UseTaskStreamOptions {
   taskId: string | null;
@@ -51,40 +73,91 @@ export function useTaskStream({ taskId, enabled = false, onFinish, onError }: Us
 
     const msgsList = store().taskMessages[taskId || ""] || [];
     const firstUserMsg = msgsList.find((m) => m.role === "user");
-    const isCrawlRef = { value: false };
-    if (firstUserMsg) {
-      isCrawlTask(firstUserMsg.content).then(r => { isCrawlRef.value = r; });
-    }
+    // 从 store 同步读取意图分类结果（由 use-agent-chat.ts 在发起请求前写入），避免异步竞态
+    const intentResult = store().intentMap[taskId || ""];
+    const isCrawlRef = { value: intentResult?.is_crawl ?? false };
 
     manager.connect(taskId, wsUrl, {
-      onLog: (msg, timestamp) => {
-        if (!isCrawlRef.value) {
-          const currentMsgs = store().taskMessages[taskId] || [];
-          const agentMsg = [...currentMsgs].reverse().find((m) => m.role === "agent");
-          if (agentMsg) {
-            const isPlaceholder = agentMsg.content === "正在思考中..." || agentMsg.content === "正在连接后端...";
-            const newContent = isPlaceholder ? msg : agentMsg.content + msg;
-            store().updateMessage(taskId, agentMsg.id, { content: newContent });
-            return;
+      stageHandlers: {
+        onStageStart: (stage, college, collegeIndex, collegeTotal) => {
+          const currentStage = store().stageMap[taskId];
+          if (!currentStage) {
+            // 首次收到阶段事件，初始化所有学院为 pending
+            const colleges = Array.from({ length: collegeTotal }, (_, i) => ({
+              name: i === collegeIndex - 1 ? college : "加载中...",
+              status: (i === collegeIndex - 1 ? "active" : "pending") as CollegeStage["status"],
+            }));
+            store().initStages(taskId, colleges.map((c) => c.name));
           }
+          store().updateCollegeStage(taskId, college, { status: "active" });
+        },
+        onStageProgress: (stage, phase, found, extracted, totalPages) => {
+          const s = store().stageMap[taskId];
+          if (!s) return;
+          const active = s.colleges.find((c) => c.status === "active");
+          if (active) {
+            store().updateCollegeStage(taskId, active.name, {
+              found: found ?? active.found,
+              extracted: extracted ?? active.extracted,
+              total_pages: totalPages ?? active.total_pages,
+            });
+          }
+        },
+        onStageDone: (stage, college, found, validEmail, elapsedMs) => {
+          store().updateCollegeStage(taskId, college, {
+            status: "done",
+            found,
+            valid_email: validEmail,
+            elapsed_ms: elapsedMs,
+          });
+          // 更新 college name（以防初始化时是占位名）
+          store().updateCollegeStage(taskId, college, { name: college });
+        },
+      },
+      // Phase 2: New WS event handlers
+      onCrawlStage: (stageNum, stageName, progressPct, timestamp) => {
+        store().setCrawlStage(taskId, { stage: stageNum, stage_name: stageName, progress_pct: progressPct, timestamp });
+      },
+      onCrawlStats: (teachersFound, emailsExtracted, departmentsDone, departmentNames, timestamp) => {
+        store().setCrawlStats(taskId, { teachers_found: teachersFound, emails_extracted: emailsExtracted, departments_done: departmentsDone, department_names: departmentNames, timestamp });
+      },
+      onCrawlSummary: (university, totalTeachers, totalEmails, duration, files, timestamp) => {
+        store().setCrawlSummary(taskId, { university, total_teachers: totalTeachers, total_emails: totalEmails, duration, files, timestamp });
+      },
+      onErrorUser: (message, severity, timestamp) => {
+        store().appendCrawlError(taskId, { message, severity, timestamp });
+      },
+      onEval: (evalData) => {
+        try {
+          store().setQualityEval(taskId, evalData);
+        } catch {
+          // 静默兜底
         }
+      },
+      onTrace: (traceUrl) => {
+        try {
+          store().setTraceUrl(taskId, traceUrl);
+        } catch {
+          // 静默兜底
+        }
+      },
+      onLog: (msg, timestamp) => {
+        // 同时写入消息列表（历史持久化）和实时日志面板
         store().appendMessage(taskId, {
           id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           role: "log",
           content: msg,
           timestamp,
         });
+        store().addLog(taskId, `[${timestamp || new Date().toISOString().slice(11, 19)}] ${msg}`);
       },
       onText: (msg, timestamp) => {
         firstMessageReceived = true;
         const currentMsgs = store().taskMessages[taskId] || [];
         // 找到最后一个 agent 消息
         const lastAgent = [...currentMsgs].reverse().find((m) => m.role === "agent");
-        const isPlaceholder = lastAgent && (
-          lastAgent.content === "正在连接后端..." ||
-          lastAgent.content === "正在思考中..." ||
-          lastAgent.content === ""
-        );
+        // 占位符检测：匹配 use-agent-chat.ts 中定义的所有占位消息
+        const isPlaceholder = lastAgent && PLACEHOLDER_PATTERNS.includes(lastAgent.content);
         if (isPlaceholder) {
           // 第一个 chunk：替换占位符
           store().updateMessage(taskId, lastAgent!.id, { content: msg, isStreaming: true });
@@ -140,34 +213,95 @@ export function useTaskStream({ taskId, enabled = false, onFinish, onError }: Us
         doneRef.current = true;
         firstMessageReceived = true;
 
-        if (!isCrawlRef.value) {
+        // === 判断此任务是否为爬虫任务 ===
+        // 优先使用 intentMap 同步结果；落地检查 store 中的爬虫专用数据作为后备
+        const isDefinitelyCrawl = isCrawlRef.value ||
+          !!store().crawlStageMap[taskId] ||
+          !!store().crawlStatsMap[taskId];
+
+        if (!isDefinitelyCrawl) {
           const currentMsgs = store().taskMessages[taskId] || [];
           const agentMsg = [...currentMsgs].reverse().find((m) => m.role === "agent");
           if (agentMsg) {
-            // 只设置 isStreaming=false，不覆盖真实回复内容
-            // done 消息通常只用于标记结束，不为空时不覆盖已有内容
-            store().updateMessage(taskId, agentMsg.id, {
-              isStreaming: false,
-            });
+            const isPlaceholder = PLACEHOLDER_PATTERNS.includes(agentMsg.content);
+
+            if (isPlaceholder && message) {
+              // 占位符还在 → 用 done 消息内容替换
+              store().updateMessage(taskId, agentMsg.id, {
+                content: message,
+                isStreaming: false,
+              });
+            } else if (isPlaceholder && !message) {
+              // 占位符还在，但没有 done 消息 → 设一个默认提示
+              store().updateMessage(taskId, agentMsg.id, {
+                content: "## 任务完成\n\n任务已执行完毕。",
+                isStreaming: false,
+              });
+            } else {
+              // agent 已经有真实内容 → 仅标记结束
+              store().updateMessage(taskId, agentMsg.id, {
+                isStreaming: false,
+              });
+            }
             return;
           }
         } else {
           const currentMsgs = store().taskMessages[taskId] || [];
           const filtered = currentMsgs.filter(m => !m.content.startsWith("收到任务，正在为你执行"));
           store().replaceMessages(taskId, filtered);
+
+          // 爬取分支：检查是否已有 onText 流式写入的真实 agent 消息
+          const lastAgent = [...filtered].reverse().find((m) => m.role === "agent");
+          if (lastAgent) {
+            const isPlaceholder = PLACEHOLDER_PATTERNS.includes(lastAgent.content);
+            if (isPlaceholder && message) {
+              // 占位符还在 → 用 done 消息内容替换
+              store().updateMessage(taskId, lastAgent.id, {
+                content: message,
+                isStreaming: false,
+              });
+            } else if (isPlaceholder && !message) {
+              store().updateMessage(taskId, lastAgent.id, {
+                content: "## 任务完成\n\n任务已执行完毕。",
+                isStreaming: false,
+              });
+            } else {
+              // agent 已经有真实内容 → 仅标记结束
+              store().updateMessage(taskId, lastAgent.id, {
+                isStreaming: false,
+              });
+            }
+          } else {
+            // 没有任何 agent 消息 → 追加 done 消息
+            store().appendMessage(taskId, {
+              id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              role: "agent",
+              content: message || "## 任务完成\n\n任务已执行完毕。",
+            });
+          }
         }
 
-        store().appendMessage(taskId, {
-          id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          role: "agent",
-          content: message || "## 任务完成\n\n任务已执行完毕。",
-        });
+        // 爬取任务完成后获取摘要数据
+        if (isCrawlRef.value) {
+          api.getTaskSummary(taskId).then(summary => {
+            store().setSummary(taskId, summary);
+          }).catch(() => {});
+        }
+
+        // 桌面通知
+        const taskTitle = store().taskMessages[taskId]?.find(m => m.role === "user")?.content || "任务";
+        notify("任务完成", taskTitle.slice(0, 50));
       },
       onError: (msg) => {
         hadErrorRef.current = true;
         firstMessageReceived = true;
 
-        if (!isCrawlRef.value) {
+        // isDefinitelyCrawl 判断（同 onDone）
+        const isDefinitelyCrawl = isCrawlRef.value ||
+          !!store().crawlStageMap[taskId] ||
+          !!store().crawlStatsMap[taskId];
+
+        if (!isDefinitelyCrawl) {
           const currentMsgs = store().taskMessages[taskId] || [];
           const agentMsg = [...currentMsgs].reverse().find((m) => m.role === "agent");
           if (agentMsg) {
@@ -186,23 +320,31 @@ export function useTaskStream({ taskId, enabled = false, onFinish, onError }: Us
           content: `执行出错：${msg}`,
         });
         onErrorRef.current?.(taskId, msg);
+
+        // 桌面通知
+        const errorTitle = store().taskMessages[taskId]?.find(m => m.role === "user")?.content || "任务";
+        notify("任务失败", `${errorTitle.slice(0, 40)}: ${msg.slice(0, 60)}`);
       },
       onClose: () => {
         const setComposerState = store().setComposerState;
         const removeRunningTask = store().removeRunningTask;
 
         if (stoppedRef.current) {
+          manager.disconnect();
           setComposerState(taskId, "stopped");
           removeRunningTask(taskId);
           onFinishRef.current?.(taskId);
         } else if (hadErrorRef.current) {
+          manager.disconnect();
           setComposerState(taskId, "error");
           removeRunningTask(taskId);
         } else if (doneRef.current) {
+          manager.disconnect();
           setComposerState(taskId, "completed");
           removeRunningTask(taskId);
           if (firstMessageReceived) onFinishRef.current?.(taskId);
         } else {
+          manager.disconnect();
           if (!firstMessageReceived) {
             setComposerState(taskId, "connecting");
           } else {

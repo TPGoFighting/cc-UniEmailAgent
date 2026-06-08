@@ -11,6 +11,8 @@ interface UIStore {
   editTarget: EditTarget | null;
   universityOpen: boolean;
   mailOpen: boolean;
+  highlightUniversity: string | null;
+  pendingInput: string | null;
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
@@ -18,6 +20,8 @@ interface UIStore {
   setEditTarget: (target: EditTarget | null) => void;
   setUniversityOpen: (open: boolean) => void;
   setMailOpen: (open: boolean) => void;
+  setHighlightUniversity: (name: string | null) => void;
+  setPendingInput: (text: string | null) => void;
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -26,6 +30,8 @@ export const useUIStore = create<UIStore>((set) => ({
   editTarget: null,
   universityOpen: false,
   mailOpen: false,
+  highlightUniversity: null,
+  pendingInput: null,
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -33,4 +39,6 @@ export const useUIStore = create<UIStore>((set) => ({
   setEditTarget: (target) => set({ editTarget: target }),
   setUniversityOpen: (open) => set({ universityOpen: open }),
   setMailOpen: (open) => set({ mailOpen: open }),
+  setHighlightUniversity: (name) => set({ highlightUniversity: name }),
+  setPendingInput: (text) => set({ pendingInput: text }),
 }));

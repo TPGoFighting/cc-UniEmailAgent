@@ -17,7 +17,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-250 hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]"
+      className="flex size-8 items-center justify-center rounded-xl text-muted-foreground transition-colors duration-250 hover:bg-primary/[0.06] hover:text-primary"
       style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
       aria-label="切换主题"
     >

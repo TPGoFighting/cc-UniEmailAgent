@@ -1,0 +1,128 @@
+<h2>最终方案预览 — 侧边栏混合模式</h2>
+<p class="subtitle">方案 D + 仅点击展开 + 信息行/操作栏分离 + 折叠项带状态标签</p>
+
+<div class="mockup">
+  <div class="mockup-body">
+    <div style="width:250px;font-family:system-ui;font-size:13px;background:#F7F7F8;border-radius:12px;overflow:hidden;">
+
+      <!-- Header -->
+      <div style="padding:12px 14px;border-bottom:1px solid rgba(0,0,0,0.04);">
+        <div style="font-weight:700;font-size:16px;color:#202123;">UniEmail Agent</div>
+      </div>
+
+      <!-- New task + Search -->
+      <div style="padding:8px 10px;display:flex;flex-direction:column;gap:6px;">
+        <div style="padding:8px 12px;border-radius:24px;cursor:pointer;color:#6E6E80;font-size:12px;display:flex;align-items:center;gap:6px;">+ 新建任务</div>
+        <div style="padding:6px 12px;border-radius:24px;background:rgba(0,0,0,0.04);color:#9A9AA5;font-size:11px;">搜索任务...</div>
+      </div>
+
+      <!-- Filter pills -->
+      <div style="padding:4px 10px 8px 10px;display:flex;gap:4px;">
+        <span style="padding:2px 10px;border-radius:12px;background:rgba(0,0,0,0.1);font-size:10px;font-weight:600;">全部</span>
+        <span style="padding:2px 10px;border-radius:12px;font-size:10px;color:#9A9AA5;">运行中</span>
+        <span style="padding:2px 10px;border-radius:12px;font-size:10px;color:#9A9AA5;">有数据</span>
+        <span style="padding:2px 10px;border-radius:12px;font-size:10px;color:#9A9AA5;">失败</span>
+      </div>
+
+      <div style="margin:0 10px;border-top:1px solid rgba(0,0,0,0.04);"></div>
+
+      <!-- Task list -->
+      <div style="padding:8px 10px;display:flex;flex-direction:column;gap:3px;">
+
+        <!-- Group: 今天 -->
+        <p style="font-size:10px;color:#9A9AA5;padding:6px 8px 2px 8px;margin:0;font-weight:600;">今天</p>
+
+        <!-- Active item (expanded) -->
+        <div style="border-radius:16px;background:rgba(0,0,0,0.06);overflow:hidden;">
+          <div style="padding:10px 12px 8px 12px;">
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <span style="color:#10A37F;font-size:14px;flex-shrink:0;margin-top:1px;">&#10003;</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:12px;line-height:1.45;color:#202123;">抓取南京大学计算机学院教师邮箱</div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:5px;">
+                  <span style="font-size:10px;color:#9A9AA5;">06-03</span>
+                  <span style="font-size:9px;padding:1px 7px;border-radius:10px;background:#dcfce7;color:#16a34a;font-weight:500;">&#10003; 87人</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Action bar -->
+          <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;padding:4px 12px 8px 12px;border-top:1px solid rgba(0,0,0,0.04);">
+            <span style="font-size:10px;padding:3px 8px;border-radius:6px;cursor:pointer;color:#6E6E80;display:flex;align-items:center;gap:3px;">&#127760; 高校库</span>
+            <span style="font-size:10px;padding:3px 8px;border-radius:6px;cursor:pointer;color:#6E6E80;">&#128204; 置顶</span>
+            <span style="font-size:10px;padding:3px 8px;border-radius:6px;cursor:pointer;color:#6E6E80;">&#9998; 重命名</span>
+            <span style="font-size:10px;padding:3px 8px;border-radius:6px;cursor:pointer;color:#ef4444;">&#128465;</span>
+          </div>
+        </div>
+
+        <!-- Collapsed (running) -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;transition:background 0.2s;">
+          <span style="color:#f59e0b;font-size:14px;flex-shrink:0;animation:spin 2s linear infinite;">&#8635;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#202123;">增量补充东南大学信息科学与工程学院</span>
+          <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#fef3c7;color:#d97706;flex-shrink:0;white-space:nowrap;">运行中</span>
+        </div>
+
+        <!-- Collapsed (conversation only) -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;transition:background 0.2s;">
+          <span style="color:#6366f1;font-size:14px;flex-shrink:0;">&#128172;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#202123;">帮我分析南京大学教师邮箱数据</span>
+        </div>
+
+        <!-- Group: 昨天 -->
+        <p style="font-size:10px;color:#9A9AA5;padding:10px 8px 2px 8px;margin:0;font-weight:600;">昨天</p>
+
+        <!-- Collapsed (completed with data) -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;transition:background 0.2s;">
+          <span style="color:#10A37F;font-size:14px;flex-shrink:0;">&#10003;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#202123;">抓取南京理工大学机械学院教师邮箱</span>
+          <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#dcfce7;color:#16a34a;flex-shrink:0;white-space:nowrap;">&#10003; 52人</span>
+        </div>
+
+        <!-- Collapsed (failed) -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;transition:background 0.2s;">
+          <span style="color:#ef4444;font-size:14px;flex-shrink:0;">&#10007;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#202123;">抓取河海大学水文学院教师邮箱</span>
+          <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#fef2f2;color:#dc2626;flex-shrink:0;white-space:nowrap;">失败</span>
+        </div>
+
+        <!-- Group: 本周 -->
+        <p style="font-size:10px;color:#9A9AA5;padding:10px 8px 2px 8px;margin:0;font-weight:600;">本周</p>
+
+        <!-- Collapsed (completed, no data - conversation only) -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px;cursor:pointer;transition:background 0.2s;">
+          <span style="color:#6366f1;font-size:14px;flex-shrink:0;">&#128172;</span>
+          <span style="flex:1;font-weight:500;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#202123;">查询南京大学教师邮箱覆盖情况</span>
+        </div>
+
+      </div>
+
+      <!-- Bottom bar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid rgba(0,0,0,0.04);margin-top:4px;">
+        <span style="font-size:10px;color:#9A9AA5;">深色模式</span>
+        <span style="font-size:10px;color:#6E6E80;">&#9788;</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>交互规则总结</h3>
+  <table style="width:100%;font-size:13px;border-collapse:collapse;">
+    <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+      <td style="padding:8px 12px;font-weight:600;width:140px;">折叠态（未选中）</td>
+      <td style="padding:8px 12px;color:#6E6E80;">图标 + 截断单行标题 + 状态小标签 · hover 仅变色 · 点击选中展开</td>
+    </tr>
+    <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+      <td style="padding:8px 12px;font-weight:600;">展开态（选中）</td>
+      <td style="padding:8px 12px;color:#6E6E80;">图标 + 标题完整换行 + 日期/状态标签行 + 分隔线 + 底部操作栏（高校库→置顶→重命名→删除）</td>
+    </tr>
+    <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+      <td style="padding:8px 12px;font-weight:600;">置顶项</td>
+      <td style="padding:8px 12px;color:#6E6E80;">选中时图标替换为 Pin 图钉，保持在列表顶部不受时间分组影响</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;font-weight:600;">状态标签</td>
+      <td style="padding:8px 12px;color:#6E6E80;">有数据(绿 ✓ N人) · 运行中(黄 转圈) · 对话(蓝 💬) · 失败(红 ✗) · 已停止(灰)</td>
+    </tr>
+  </table>
+</div>

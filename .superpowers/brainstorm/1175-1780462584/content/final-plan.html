@@ -1,0 +1,50 @@
+<h2>最终整合方案</h2>
+<p class="subtitle">6 项改动，覆盖三大目标：任务隔离、启动检查技能、完成后更新技能</p>
+
+<h3>一、Prompt 结构重组</h3>
+<div class="mockup">
+  <div class="mockup-body">
+    <div style="font-family:monospace;font-size:11px;line-height:1.9;color:#202123;">
+      <div style="background:#fef2f2;padding:4px 8px;border-radius:4px;margin-bottom:2px;">
+        <strong>🚫 任务隔离红线（第 1 优先级）</strong><br/>
+        <span style="color:#6E6E80;">工作目录: outputs/{task_id}/ · 禁止跨目录扫描 · 禁止读其他大学文件</span>
+      </div>
+      <div style="background:#ecfdf5;padding:4px 8px;border-radius:4px;margin-bottom:2px;">
+        <strong>📋 启动检查清单（第 2 优先级）</strong><br/>
+        <span style="color:#6E6E80;">① 先 ls outputs/{task_id}/ 看已有数据 · ② 先读取 skills/ 下相关 .md 和 .json · ③ 确认目标大学 URL</span>
+      </div>
+      <div style="padding:4px 8px;">📚 爬取策略（CRAWL_STRATEGY_PROMPT）</div>
+      <div style="padding:4px 8px;">🧠 技能知识注入（skill_prompt — 已注入到 prompt 内，Agent 无需再读）</div>
+      <div style="padding:4px 8px;">📋 数据规范（schema） + 任务隔离细则</div>
+      <div style="padding:4px 8px;">📝 用户任务指令</div>
+    </div>
+  </div>
+</div>
+
+<h3>二、改动清单</h3>
+<table style="width:100%;font-size:13px;border-collapse:collapse;">
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:8px 12px;font-weight:600;width:50px;">#1</td>
+    <td style="padding:8px 12px;"><strong>claude_agent.py</strong> — CRAWL_STRATEGY_PROMPT 顶部加「隔离声明 + 启动检查清单」</td>
+  </tr>
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:8px 12px;font-weight:600;">#2</td>
+    <td style="padding:8px 12px;"><strong>claude_agent.py execute()</strong> — 重组 prompt 顺序，隔离红线放最前</td>
+  </tr>
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:8px 12px;font-weight:600;">#3</td>
+    <td style="padding:8px 12px;"><strong>skill_manager.py</strong> — 强化隔离措辞 + 增加「任务完成后必须更新 skills/ 下相关 markdown」指令</td>
+  </tr>
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:8px 12px;font-weight:600;">#4</td>
+    <td style="padding:8px 12px;"><strong>claude_agent.py _find_csv_files()</strong> — 搜索范围限定 outputs/{task_id}/</td>
+  </tr>
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:8px 12px;font-weight:600;">#5</td>
+    <td style="padding:8px 12px;"><strong>main.py / skill_manager</strong> — 在 prompt 末尾追加「任务完成后自我反思并更新 skills/」指令</td>
+  </tr>
+  <tr>
+    <td style="padding:8px 12px;font-weight:600;">#6</td>
+    <td style="padding:8px 12px;"><strong>一次性脚本</strong> — 清理 backend/outputs/ 根目录散落的 CSV/XLSX，移到对应 task 子目录</td>
+  </tr>
+</table>

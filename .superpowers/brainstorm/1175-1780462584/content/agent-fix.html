@@ -1,0 +1,50 @@
+<h2>综合修复方案：Prompt 重组 + 目录清理</h2>
+<p class="subtitle">三个层面的改动，确保 Agent 只看自己的数据、先读技能再干活</p>
+
+<h3>改动清单</h3>
+<table style="width:100%;font-size:13px;border-collapse:collapse;">
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:10px 12px;font-weight:600;width:50px;">#1</td>
+    <td style="padding:10px 12px;"><strong>claude_agent.py</strong> — CRAWL_STRATEGY_PROMPT 顶部新增隔离声明</td>
+  </tr>
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:10px 12px;font-weight:600;">#2</td>
+    <td style="padding:10px 12px;"><strong>claude_agent.py execute()</strong> — 重组 prompt 顺序：隔离规则 → 策略 → 技能 → 任务数据 → 用户指令</td>
+  </tr>
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:10px 12px;font-weight:600;">#3</td>
+    <td style="padding:10px 12px;"><strong>skill_manager.py</strong> — get_task_isolation_prompt() 增加「工作目录声明」和「第一步检查清单」</td>
+  </tr>
+  <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+    <td style="padding:10px 12px;font-weight:600;">#4</td>
+    <td style="padding:10px 12px;"><strong>一次性清理</strong> — 把 backend/outputs/ 根目录散落的 CSV/XLSX 归类到 task 子目录</td>
+  </tr>
+  <tr>
+    <td style="padding:10px 12px;font-weight:600;">#5</td>
+    <td style="padding:10px 12px;"><strong>_find_csv_files()</strong> — 限定搜索范围为 outputs/{task_id}/ 而非全局 rglob</td>
+  </tr>
+</table>
+
+<h3>重组后的 Prompt 结构</h3>
+<div class="mockup">
+  <div class="mockup-body">
+    <div style="font-family:monospace;font-size:11px;line-height:1.8;color:#6E6E80;">
+      <div style="color:#ef4444;font-weight:600;">🚫 任务隔离红线（第一条，权重最高）</div>
+      <div>  - 工作目录: outputs/{task_id}/</div>
+      <div>  - 禁止: Glob 全 outputs、读其他大学文件</div>
+      <div style="border-top:1px solid #e5e7eb;margin:4px 0;"></div>
+      <div style="color:#10A37F;font-weight:600;">📋 启动检查清单</div>
+      <div>  1. 先 ls outputs/{task_id}/ 看已有数据</div>
+      <div>  2. 先读取 skills/ 相关 markdown</div>
+      <div>  3. 确认目标大学 URL 后再开始</div>
+      <div style="border-top:1px solid #e5e7eb;margin:4px 0;"></div>
+      <div>📚 爬取策略（CRAWL_STRATEGY_PROMPT）</div>
+      <div style="border-top:1px solid #e5e7eb;margin:4px 0;"></div>
+      <div>🧠 技能知识注入（skill_prompt）</div>
+      <div style="border-top:1px solid #e5e7eb;margin:4px 0;"></div>
+      <div>📋 数据规范（schema_prompt）</div>
+      <div style="border-top:1px solid #e5e7eb;margin:4px 0;"></div>
+      <div>📝 用户任务指令</div>
+    </div>
+  </div>
+</div>

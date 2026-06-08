@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type KeyboardEvent, type ChangeEvent } from "react";
-import { ArrowUp, Loader2, Square, RotateCcw, Play } from "lucide-react";
+import { useState, useEffect, type KeyboardEvent, type ChangeEvent } from "react";
+import { ArrowUp, Loader2, Square, Play } from "lucide-react";
 import { useAutoResize } from "@/hooks/use-auto-resize";
 
 export type ComposerState = "idle" | "connecting" | "streaming" | "completed" | "stopped" | "error";
@@ -12,6 +12,8 @@ interface ChatInputProps {
   onRegenerate: () => void;
   disabled?: boolean;
   composerState?: ComposerState;
+  externalValue?: string | null;
+  onExternalValueConsumed?: () => void;
 }
 
 export function ChatInput({
@@ -20,9 +22,19 @@ export function ChatInput({
   onRegenerate,
   disabled,
   composerState = "idle",
+  externalValue,
+  onExternalValueConsumed,
 }: ChatInputProps) {
   const [input, setInput] = useState("");
   const { textareaRef, resize } = useAutoResize();
+
+  // 外部值注入（跨面板联动）
+  useEffect(() => {
+    if (externalValue) {
+      setInput(externalValue);
+      onExternalValueConsumed?.();
+    }
+  }, [externalValue]);
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -60,35 +72,73 @@ export function ChatInput({
   const isStopped = composerState === "stopped";
   const isIdle = composerState === "idle";
 
-  return (
-    <div className="px-4 pb-6 pt-2">
-      <div className="mx-auto max-w-3xl">
-        <div className="relative flex items-end gap-2 rounded-[24px] border bg-white/80 px-3 py-2 shadow-[0_2px_8px_rgba(0,0,0,0.04),0_8px_32px_rgba(0,0,0,0.03)] backdrop-blur-xl transition-shadow focus-within:shadow-[0_2px_12px_rgba(0,0,0,0.06),0_12px_40px_rgba(0,0,0,0.05)] dark:bg-[#2A2B32]/80 dark:shadow-none dark:focus-within:ring-1 dark:focus-within:ring-border"
-          style={{ borderColor: "rgba(0,0,0,0.06)" }}
-        >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isCompleted
-                ? "输入新指令，例如：把有邮箱和没邮箱的分成两个表格"
-                : isStopped
-                  ? "继续输入或点击 ▶ 恢复当前任务"
-                  : "输入你的任务，例如：帮我抓取南京大学计算机学院教师邮箱"
-            }
-            disabled={disabled || isStreaming}
-            rows={1}
-            className="min-h-10 max-h-[200px] flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-sm text-foreground placeholder:text-[#9A9AA5] outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:placeholder:text-[#6E6E80]"
-          />
+  // 智能占位符
+  const placeholder = (() => {
+    switch (composerState) {
+      case "idle":
+        return "💡 输入任务，例如：帮我抓取南京大学计算机学院教师邮箱";
+      case "connecting":
+        return "正在连接 AI 引擎...";
+      case "streaming":
+        return "任务执行中，可以输入新指令...";
+      case "completed":
+        return "继续输入新任务，或选择历史任务";
+      default:
+        return "输入你的任务，例如：帮我抓取南京大学计算机学院教师邮箱";
+    }
+  })();
 
-          {/* Send Button (idle, or completed/stopped with input) */}
-          {(isIdle || ((isCompleted || isStopped) && input.trim())) && (
+  // 字数统计 (超过 200 字符时显示)
+  const charCount = input.length;
+  const showCharCount = charCount > 200;
+
+  return (
+    <div className="px-4 pb-5 pt-1">
+      <div className="mx-auto max-w-3xl">
+        <div className="relative flex items-end gap-2 rounded-2xl border border-border/40 bg-card/60 px-3 py-2 shadow-lg shadow-black/[0.03] backdrop-blur-xl transition-all duration-300 focus-within:border-primary/30 focus-within:shadow-[0_0_20px_rgba(34,211,238,0.08)] dark:bg-card/50"
+        >
+          <div className="relative flex-1">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              disabled={disabled || isStreaming}
+              rows={1}
+              className={`min-h-10 max-h-[200px] w-full resize-none overflow-y-auto bg-transparent px-2 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+                isIdle ? "animate-placeholder-pulse" : ""
+              }`}
+              style={{
+                animation: isIdle ? "placeholderPulse 3s ease-in-out infinite" : "none",
+              }}
+            />
+            {/* 占位符脉冲动画 — 纯 CSS */}
+            <style>{`
+              @keyframes placeholderPulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.6; }
+              }
+            `}</style>
+          </div>
+
+          {/* 字数统计 */}
+          {showCharCount && (
+            <div className="absolute right-16 bottom-2 text-[10px] text-muted-foreground/40 pointer-events-none select-none">
+              {charCount}/500
+            </div>
+          )}
+
+          {/* Send Button — 所有非流式状态都显示发送按钮 */}
+          {(isIdle || isCompleted || isStopped) && (
             <button
               onClick={handleSend}
               disabled={!input.trim()}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-250 hover:-translate-y-[1px] hover:opacity-90 disabled:pointer-events-none disabled:opacity-30"
+              className={`flex size-9 shrink-0 items-center justify-center rounded-xl transition-all duration-250 hover:-translate-y-[0.5px] active:scale-95 ${
+                input.trim()
+                  ? "bg-primary text-primary-foreground shadow-[0_0_12px_rgba(34,211,238,0.3)] hover:shadow-[0_0_20px_rgba(34,211,238,0.45)] disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none"
+                  : "bg-muted-foreground/15 text-muted-foreground/40 cursor-not-allowed"
+              }`}
               style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
             >
               <ArrowUp className="size-4" />
@@ -97,7 +147,7 @@ export function ChatInput({
 
           {/* Connecting spinner */}
           {(composerState === "connecting") && (
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/80 text-primary-foreground">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/80 text-primary-foreground shadow-[0_0_12px_rgba(34,211,238,0.3)]">
               <Loader2 className="size-4 animate-spin" />
             </div>
           )}
@@ -106,23 +156,11 @@ export function ChatInput({
           {composerState === "streaming" && (
             <button
               onClick={onStop}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive text-destructive-foreground transition-all duration-250 hover:-translate-y-[1px] hover:opacity-90"
+              className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-destructive/90 text-destructive-foreground transition-all duration-250 hover:-translate-y-[0.5px] active:scale-95 hover:shadow-[0_0_16px_rgba(251,113,133,0.3)]"
               style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
               title="停止生成"
             >
               <Square className="size-3.5" />
-            </button>
-          )}
-
-          {/* Regenerate Button (completed, empty input) */}
-          {isCompleted && !input.trim() && (
-            <button
-              onClick={onRegenerate}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-250 hover:-translate-y-[1px] hover:opacity-90"
-              style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
-              title="重新生成"
-            >
-              <RotateCcw className="size-4" />
             </button>
           )}
 
@@ -132,7 +170,7 @@ export function ChatInput({
               onClick={() => {
                 onSend("继续");
               }}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-250 hover:-translate-y-[1px] hover:opacity-90"
+              className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-all duration-250 hover:-translate-y-[0.5px] active:scale-95 shadow-[0_0_12px_rgba(34,211,238,0.3)]"
               style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
               title="继续"
             >
@@ -140,7 +178,7 @@ export function ChatInput({
             </button>
           )}
         </div>
-        <p className="mt-2 text-center text-xs text-[#9A9AA5] dark:text-[#6E6E80]">
+        <p className="mt-2 text-center text-xs text-muted-foreground/40">
           Enter 发送 · Shift+Enter 换行
         </p>
       </div>

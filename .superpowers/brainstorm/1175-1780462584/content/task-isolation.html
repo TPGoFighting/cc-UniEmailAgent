@@ -1,0 +1,26 @@
+<h2>Agent 任务隔离 — 三种方案</h2>
+<p class="subtitle">当前 Agent 用 Glob 搜索整个 outputs/ 目录，会看到其他任务的文件</p>
+
+<div class="options">
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>推荐：Prompt 约束 + 清理残留（双管齐下）</h3>
+      <p>① Prompt 增加「只搜索 {{OUTPUT_DIR}} 目录」的硬约束 · ② 把 root outputs/ 下散落的 CSV/XLSX 移到 task 子目录 · ③ _find_csv_files() 也限定 task 目录</p>
+    </div>
+  </div>
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>仅 Prompt 约束（最小改动）</h3>
+      <p>在 CRAWL_STRATEGY_PROMPT 中加一条「只读取 outputs/{task_id}/ 目录下的文件，不要跨目录搜索」。一行代码，但依赖 Agent 遵守。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>仅清理旧数据（物理隔离）</h3>
+      <p>把 outputs/ 根目录下散落的所有 CSV/XLSX 文件移到对应的 task 子目录。但新任务仍能搜索到其他子目录的文件。</p>
+    </div>
+  </div>
+</div>

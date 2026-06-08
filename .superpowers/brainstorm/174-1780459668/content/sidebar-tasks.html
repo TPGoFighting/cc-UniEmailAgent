@@ -1,0 +1,90 @@
+<h2>侧边栏任务管理升级</h2>
+<p class="subtitle">左侧：当前状态 ｜ 右侧：增强方案（状态徽章 + 时间分组 + 快速筛选）</p>
+
+<div class="split">
+  <!-- 当前侧边栏 -->
+  <div class="mockup" style="flex:0.9;">
+    <div class="mockup-header">当前：扁平列表，无状态区分</div>
+    <div class="mockup-body" style="padding:12px;background:#F7F7F8;font-size:12px;">
+      <div style="margin-bottom:8px;padding:4px 10px;font-size:11px;font-weight:600;color:rgba(0,0,0,0.3);">历史任务</div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;color:#111;font-weight:500;">南京大学计算机系</div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;color:#111;font-weight:500;">北大数学学院教师</div>
+      <div style="padding:8px 10px;border-radius:12px;background:rgba(16,163,127,0.06);margin-bottom:2px;color:#111;font-weight:500;">浙大信息学院抓取</div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;color:#111;font-weight:500;">南理工教师邮箱</div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;color:#111;font-weight:500;">分析清华数据</div>
+      <p style="margin-top:12px;font-size:10px;color:rgba(0,0,0,0.2);">全部一个样，不知道哪个有数据...</p>
+    </div>
+  </div>
+
+  <!-- 新方案 -->
+  <div class="mockup" style="flex:1.3;">
+    <div class="mockup-header">新方案：时间分组 + 状态徽章 + 筛选</div>
+    <div class="mockup-body" style="padding:12px;background:#F7F7F8;font-size:12px;">
+
+      <!-- 快速筛选 -->
+      <div style="display:flex;gap:4px;margin-bottom:10px;">
+        <span style="padding:3px 8px;border-radius:24px;background:#10A37F;color:#fff;font-size:10px;font-weight:600;">全部</span>
+        <span style="padding:3px 8px;border-radius:24px;border:1px solid rgba(0,0,0,0.06);font-size:10px;color:#6E6E80;">🔄 运行中</span>
+        <span style="padding:3px 8px;border-radius:24px;border:1px solid rgba(0,0,0,0.06);font-size:10px;color:#6E6E80;">📧 有数据</span>
+        <span style="padding:3px 8px;border-radius:24px;border:1px solid rgba(0,0,0,0.06);font-size:10px;color:#6E6E80;">❌ 失败</span>
+      </div>
+
+      <!-- 今天 -->
+      <div style="margin-bottom:3px;padding:6px 10px 4px;font-size:10px;font-weight:600;color:rgba(0,0,0,0.3);">今天</div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;display:flex;align-items:center;gap:8px;background:rgba(16,163,127,0.04);">
+        <span style="flex:1;font-weight:500;color:#111;font-size:12px;">南京大学计算机系</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:24px;background:rgba(234,179,8,0.12);color:#b45309;font-size:9px;font-weight:600;">🔄 运行中</span>
+      </div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;display:flex;align-items:center;gap:8px;">
+        <span style="flex:1;font-weight:500;color:#111;font-size:12px;">北大数学学院教师</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:24px;background:rgba(16,163,127,0.08);color:#10A37F;font-size:9px;font-weight:600;">✓ 87人</span>
+      </div>
+
+      <!-- 昨天 -->
+      <div style="margin-top:8px;margin-bottom:3px;padding:6px 10px 4px;font-size:10px;font-weight:600;color:rgba(0,0,0,0.3);">昨天</div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;display:flex;align-items:center;gap:8px;">
+        <span style="flex:1;font-weight:500;color:#111;font-size:12px;">浙大信息学院抓取</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:24px;background:rgba(16,163,127,0.08);color:#10A37F;font-size:9px;font-weight:600;">✓ 156人</span>
+      </div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;display:flex;align-items:center;gap:8px;">
+        <span style="flex:1;font-weight:500;color:#111;font-size:12px;">分析清华数据</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:24px;background:rgba(59,130,246,0.08);color:#2563eb;font-size:9px;font-weight:600;">💬 对话</span>
+      </div>
+
+      <!-- 更早 -->
+      <div style="margin-top:8px;margin-bottom:3px;padding:6px 10px 4px;font-size:10px;font-weight:600;color:rgba(0,0,0,0.3);">本周</div>
+      <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;display:flex;align-items:center;gap:8px;opacity:0.6;">
+        <span style="flex:1;font-weight:500;color:#111;font-size:12px;">南理工教师邮箱</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:24px;background:rgba(239,68,68,0.08);color:#dc2626;font-size:9px;font-weight:600;">✗ 失败</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px;">改动清单</h3>
+<div class="section" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:12px;">
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">状态徽章</span><br>
+    运行中 🔄 / 已完成 ✓N人 / 纯对话 💬 / 失败 ✗ — 从 Task.status + summary API 获取
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">时间分组</span><br>
+    今天 / 昨天 / 本周 / 更早 — 纯前端计算，无需后端改动
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">快速筛选</span><br>
+    顶部 pill 筛选栏：全部 / 运行中 / 有数据 / 失败 — 纯前端过滤
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">搜索增强</span><br>
+    搜索框支持按大学名搜索（利用已有的 search API）
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">右键菜单</span><br>
+    右键任务 → 重命名 / 置顶 / 导出 / 删除，不用再找按钮
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">改动范围</span><br>
+    仅 sidebar.tsx + sidebar-task-item.tsx 两个文件，API 已有
+  </div>
+</div>

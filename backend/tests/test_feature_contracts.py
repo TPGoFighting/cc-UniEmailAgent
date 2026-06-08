@@ -181,10 +181,10 @@ class GlobalSkillsAndIsolationTests(unittest.TestCase):
         self.assertEqual(prompt, "抓取清华大学邮箱")
 
     # -------------------------------------------------------
-    # 4. 全局技能注入——有 skills 文件时正确注入到新任务 prompt
+    # 4. _build_context_prompt 不注入全局技能（由 WS handler 统一注入）
     # -------------------------------------------------------
-    def test_global_skills_injected_into_new_task_prompt(self):
-        """当 global_crawling_rules.md 存在时，新任务 prompt 首部包含技能块。"""
+    def test_build_context_prompt_does_not_inject_global_skills(self):
+        """即使 global_crawling_rules.md 存在，_build_context_prompt 也不注入技能。——技能由 WS handler 统一注入。"""
         import main as _main
         original = _main.GLOBAL_SKILLS_FILE
 
@@ -198,15 +198,15 @@ class GlobalSkillsAndIsolationTests(unittest.TestCase):
         _main.GLOBAL_SKILLS_FILE = original  # 恢复
 
         self.assertFalse(is_followup)
-        self.assertIn("全局共享技能与爬取经验库", prompt)
-        self.assertIn("清华大学 爬取策略", prompt)
-        self.assertIn("抓取清华大学邮箱", prompt)
+        # _build_context_prompt 不应注入全局技能——那是 WS handler 的职责
+        self.assertEqual(prompt, "抓取清华大学邮箱")
+        self.assertNotIn("清华大学 爬取策略", prompt)
 
     # -------------------------------------------------------
-    # 5. 全局技能注入——追问时也包含技能块
+    # 5. 追问时 _build_context_prompt 只提供上下文，不注入技能
     # -------------------------------------------------------
-    def test_global_skills_injected_into_followup_prompt(self):
-        """追问场景下全局技能同样被注入在 prompt 开头。"""
+    def test_followup_context_does_not_include_global_skills(self):
+        """追问场景下 _build_context_prompt 提供任务上下文（历史消息、文件等），但不注入全局技能。"""
         import main as _main
         original = _main.GLOBAL_SKILLS_FILE
 
@@ -226,9 +226,12 @@ class GlobalSkillsAndIsolationTests(unittest.TestCase):
         _main.GLOBAL_SKILLS_FILE = original  # 恢复
 
         self.assertTrue(is_followup)
-        self.assertIn("全局共享技能与爬取经验库", prompt)
-        self.assertIn("南京大学 爬取策略", prompt)
+        # _build_context_prompt 应包含本任务上下文
         self.assertIn("再加一个DOCX格式", prompt)
+        self.assertIn("抓取南京大学邮箱", prompt)
+        # 但不包含全局技能——那是 WS handler 的职责
+        self.assertNotIn("南京大学 爬取策略", prompt)
+        self.assertNotIn("全局共享", prompt)
 
 
 if __name__ == "__main__":

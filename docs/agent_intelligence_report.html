@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniEmailAgent 智能水平分析报告</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --bg-hover: #1c2333;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --orange: #d4760b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+  }
+
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 60px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .header h1 {
+    font-size: 2.2em;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 12px;
+  }
+  .header .subtitle {
+    color: var(--text-muted);
+    font-size: 1.05em;
+  }
+  .header .meta {
+    margin-top: 16px;
+    color: var(--text-muted);
+    font-size: 0.9em;
+  }
+  .header .meta span {
+    display: inline-block;
+    margin: 0 12px;
+    padding: 2px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+  }
+
+  /* Sections */
+  .section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 32px;
+  }
+  .section h2 {
+    font-size: 1.5em;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section h2 .badge {
+    font-size: 0.6em;
+    padding: 2px 10px;
+    border-radius: 20px;
+    color: #fff;
+    margin-left: 8px;
+  }
+  .badge-red { background: var(--red); }
+  .badge-yellow { background: var(--yellow); }
+  .badge-green { background: var(--green); }
+  .badge-purple { background: var(--purple); }
+
+  .section h3 {
+    font-size: 1.15em;
+    margin: 24px 0 12px;
+    color: var(--accent);
+  }
+  .section h4 {
+    font-size: 1em;
+    margin: 16px 0 8px;
+    color: var(--orange);
+  }
+  .section p { margin-bottom: 12px; color: var(--text-muted); }
+  .section ul, .section ol { margin: 8px 0 16px 24px; color: var(--text-muted); }
+  .section li { margin-bottom: 6px; }
+
+  /* Architecture diagram */
+  .arch-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 16px 0;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 0.9em;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.9em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    text-align: left;
+  }
+  th {
+    background: var(--bg);
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  td { color: var(--text-muted); }
+  tr:hover td { background: var(--bg-hover); }
+  .icon-good { color: var(--green); }
+  .icon-ok { color: var(--yellow); }
+  .icon-bad { color: var(--red); }
+
+  /* Code */
+  code {
+    background: var(--bg);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 0.88em;
+    color: var(--orange);
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 0.85em;
+    line-height: 1.5;
+    margin: 12px 0;
+  }
+
+  /* Cards */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .card h4 { margin-top: 0; color: var(--accent); }
+
+  /* Tags */
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.8em;
+    font-weight: 600;
+    margin: 0 4px 4px 0;
+  }
+  .tag-red { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid var(--red); }
+  .tag-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid var(--yellow); }
+  .tag-green { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid var(--green); }
+  .tag-blue { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid var(--accent); }
+
+  /* Timeline */
+  .timeline {
+    position: relative;
+    padding: 0 0 0 30px;
+    margin: 16px 0;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+  .timeline-item {
+    position: relative;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -26px;
+    top: 20px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--bg-card);
+  }
+  .timeline-item.red::before { border-color: var(--red); background: var(--red); }
+  .timeline-item.yellow::before { border-color: var(--yellow); background: var(--yellow); }
+  .timeline-item.green::before { border-color: var(--green); background: var(--green); }
+  .timeline-item .tl-label {
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .timeline-item .tl-time {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  /* Summary box */
+  .summary-box {
+    background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(188,140,255,0.08));
+    border: 1px solid var(--purple);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+  .summary-box h3 { color: var(--purple); margin-top: 0; }
+  .summary-box p { color: var(--text); }
+
+  /* File tree */
+  .file-tree {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 24px;
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 0.85em;
+    line-height: 1.9;
+    color: var(--text-muted);
+    margin: 12px 0;
+  }
+  .file-tree .dir { color: var(--accent); }
+  .file-tree .noise { color: var(--red); text-decoration: line-through; }
+
+  /* Responsive */
+  @media (max-width: 720px) {
+    .container { padding: 20px 16px 40px; }
+    .header h1 { font-size: 1.5em; }
+    .section { padding: 20px; }
+    table { font-size: 0.8em; }
+    th, td { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <header class="header">
+    <h1>🧠 UniEmailAgent 智能水平分析报告</h1>
+    <p class="subtitle">为什么 PlaywrightAgent / ClaudeAgent 不如 Claude Code 或 Hermes 智能？如何改进？</p>
+    <div class="meta">
+      <span>📅 2026-06-03</span>
+      <span>📂 D:\Work\test\UniEmailAgent</span>
+      <span>🤖 全量源码分析</span>
+    </div>
+  </header>
+
+  <!-- TOC -->
+  <div class="section" style="background:var(--bg);">
+    <h2>📋 目录</h2>
+    <ol style="color:var(--text-muted);">
+      <li><a href="#overview" style="color:var(--accent);">当前架构总览</a></li>
+      <li><a href="#gap" style="color:var(--accent);">能力差距对比</a></li>
+      <li><a href="#deep-dive" style="color:var(--accent);">核心缺陷深度分析</a></li>
+      <li><a href="#roadmap" style="color:var(--accent);">改进路线图</a></li>
+      <li><a href="#steps" style="color:var(--accent);">具体实施步骤</a></li>
+      <li><a href="#impact" style="color:var(--accent);">预期效果与指标</a></li>
+      <li><a href="#conclusion" style="color:var(--accent);">总结</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. Overview -->
+  <div class="section" id="overview">
+    <h2>1. 当前架构总览</h2>
+
+    <p>UniEmailAgent 的核心 Agent 体系由两层构成：</p>
+
+    <div class="arch-box">
+用户请求<br>
+&nbsp;&nbsp;│<br>
+&nbsp;&nbsp;▼<br>
+意图路由 (IntentRouter) ──LLM/关键词分类──► SIMPLE_QUERY / NEW_CRAWL / INCREMENTAL<br>
+&nbsp;&nbsp;│<br>
+&nbsp;&nbsp;▼<br>
+ClaudeAgent ──claude -p 子进程──► 成功? ──► 返回结果<br>
+&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;失败?<br>
+&nbsp;&nbsp;▼<br>
+PlaywrightAgent (降级回退) ──硬编码爬虫──► 返回结果
+    </div>
+
+    <h3>PlaywrightAgent</h3>
+    <p><strong>定位</strong>: 不依赖 LLM API 的自包含浏览器爬虫引擎。约 955 行单文件，全硬编码 JS 注入 + 正则提取。</p>
+    <p><strong>爬取流程</strong>: 首页 → 找师资入口 → 找学院列表 → 遍历学院教师列表 → 逐个访问详情页提取邮箱。</p>
+
+    <h3>ClaudeAgent</h3>
+    <p><strong>定位</strong>: Claude CLI 的 Python 包装器。通过 <code>asyncio.subprocess</code> / <code>threading</code> 启动 <code>claude -p</code>。</p>
+    <p><strong>核心注入</strong>: 一个约 80 行的系统提示词（CRAWL_STRATEGY_PROMPT），指导 Claude 如何爬取高校邮箱。</p>
+  </div>
+
+  <!-- 2. Gap Analysis -->
+  <div class="section" id="gap">
+    <h2>2. 能力差距对比</h2>
+
+    <h3>2.1 核心能力矩阵</h3>
+
+    <div style="overflow-x:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>能力维度</th>
+          <th>PlaywrightAgent</th>
+          <th>ClaudeAgent</th>
+          <th>Claude Code</th>
+          <th>Hermes Agent</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>LLM 推理</strong></td>
+          <td class="icon-bad">❌ 无</td>
+          <td class="icon-ok">✅ Claude CLI</td>
+          <td class="icon-good">✅ Claude 4 系</td>
+          <td class="icon-good">✅ 任意 LLM</td>
+        </tr>
+        <tr>
+          <td><strong>规划能力</strong></td>
+          <td class="icon-bad">❌ 硬编码流程</td>
+          <td class="icon-ok">⚠️ 即时规划（无持久）</td>
+          <td class="icon-good">✅ 工具编排</td>
+          <td class="icon-good">✅ Skills+工具链</td>
+        </tr>
+        <tr>
+          <td><strong>持久记忆</strong></td>
+          <td class="icon-bad">❌ 无</td>
+          <td class="icon-bad">❌ 每次清空上下文</td>
+          <td class="icon-ok">⚠️ Session 级记忆</td>
+          <td class="icon-good">✅ Profile 级记忆</td>
+        </tr>
+        <tr>
+          <td><strong>自我修正</strong></td>
+          <td class="icon-bad">❌ 直接跳过</td>
+          <td class="icon-ok">⚠️ 会话内可修正</td>
+          <td class="icon-good">✅ 迭代优化</td>
+          <td class="icon-good">✅ 反馈循环</td>
+        </tr>
+        <tr>
+          <td><strong>工具链</strong></td>
+          <td class="icon-bad">❌ 只有 Playwright</td>
+          <td class="icon-ok">✅ Read/Write/Bash</td>
+          <td class="icon-good">✅ 完整+MCP</td>
+          <td class="icon-good">✅ Skills+Plugins</td>
+        </tr>
+        <tr>
+          <td><strong>多 Agent 协作</strong></td>
+          <td class="icon-bad">❌ 单线程</td>
+          <td class="icon-bad">❌ 单进程</td>
+          <td class="icon-bad">❌ 单用户</td>
+          <td class="icon-good">✅ 多 Agent 编排</td>
+        </tr>
+        <tr>
+          <td><strong>自适应爬取</strong></td>
+          <td class="icon-bad">❌ 固定策略</td>
+          <td class="icon-ok">⚠️ 可理解页面</td>
+          <td>—</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><strong>技能自动沉淀</strong></td>
+          <td class="icon-bad">❌ 无</td>
+          <td class="icon-ok">⚠️ [REFLECTION] 弱</td>
+          <td class="icon-good">✅ 系统内置</td>
+          <td class="icon-good">✅ Skills 管理</td>
+        </tr>
+        <tr>
+          <td><strong>失败恢复</strong></td>
+          <td class="icon-bad">❌ 直接跳过</td>
+          <td class="icon-ok">⚠️ 可尝试重试</td>
+          <td class="icon-good">✅ 自动重试+降级</td>
+          <td class="icon-good">✅ 多重降级</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- 3. Deep Dive -->
+  <div class="section" id="deep-dive">
+    <h2>3. 核心缺陷深度分析</h2>
+
+    <h3>3.1 PlaywrightAgent 的根本问题</h3>
+
+    <div class="card-grid">
+      <div class="card">
+        <h4>🔩 硬编码策略</h4>
+        <p>所有入口查找关键词（师资/教师/faculty/staff）都是硬编码的。遇到"人才队伍"、"教学科研人员"等变体就完全找不到。</p>
+      </div>
+      <div class="card">
+        <h4>🐢 单线程低效</h4>
+        <p>信号量 <code>Semaphore(2)</code> 限制同时只爬 2 个详情页。对于 100+ 教师的学院，大量时间浪费在等待。</p>
+      </div>
+      <div class="card">
+        <h4>🔍 邮箱提取策略单一</h4>
+        <p>只靠正则匹配，反爬处理只有 5 种 <code>[at]</code> 变体。无法处理图片验证码、JS 动态渲染、自然语言指令。</p>
+      </div>
+      <div class="card">
+        <h4>🧠 无状态无记忆</h4>
+        <p>每次任务从头开始。不记录哪个策略成功、哪些 URL 模式有效、哪些反爬模式出现过。</p>
+      </div>
+    </div>
+
+    <pre># playwright_agent.py:549-568 — 硬编码的师资入口查找
+async def _find_faculty_entry(self, page, base_url):
+    links = await page.evaluate("""() => {
+        document.querySelectorAll('a').forEach(a => {
+            const text = a.textContent.trim();
+            if (text.includes('师资') || text.includes('教师') || ...) {
+                results.push(...);
+            }
+        });
+    }""")</pre>
+
+    <h3>3.2 ClaudeAgent 的根本问题</h3>
+
+    <div class="card-grid">
+      <div class="card">
+        <h4>📦 本质是 claude -p 的壳</h4>
+        <p>没有 Agent 框架加持，只是把消息传给 Claude CLI。没有记忆持久化、多轮对话管理、任务上下文积累。</p>
+      </div>
+      <div class="card">
+        <h4>📝 提示词质量不高</h4>
+        <p>CRAWL_STRATEGY_PROMPT（80 行）中，"任务隔离红线"占了近一半篇幅。缺少具体经验（哪个大学的哪个 URL 模式有效）。</p>
+      </div>
+      <div class="card">
+        <h4>💸 无效 API 调用</h4>
+        <p><code>progress_pump_llm</code> 每 30 秒调用一次 DeepSeek。10 分钟的任务 = 20+ 次 API 调用，纯浪费。</p>
+      </div>
+      <div class="card">
+        <h4>🗑️ 知识库数据污染</h4>
+        <p>32 个文件中，30 个 JSON 文件命名混乱（南京大学/爬取南京大学/抓取南京大学），含噪音（"想查哪所大学"）。</p>
+      </div>
+    </div>
+
+    <pre># claude_agent.py:775-778
+cmd = [
+    "claude", "--print", "--output-format", "stream-json",
+    "--permission-mode", "bypassPermissions",
+    "--max-budget-usd", "20.0",
+]</pre>
+
+    <h4>📁 skills/ 目录文件污染</h4>
+    <div class="file-tree">
+<span class="dir">skills/</span>
+├── crawl_knowledge.md
+├── global_crawling_rules.md
+├── 南京大学_d73dcbad.json          <span style="color:var(--text-muted);"># 任务元数据</span>
+├── 爬取南京大学_d73dcbad.json       <span style="color:var(--yellow);"># ❌ 命名不一致</span>
+├── 南京大学_996e5aec.json          <span style="color:var(--yellow);"># ❌ 同一大学多文件</span>
+├── 爬取东南大学_9782a4a5.json
+├── 清华大学_8b8245ca.json
+├── <span class="noise">想查哪所大学_49219292.json</span>      <span style="color:var(--red);"># ❌ 噪音数据</span>
+└── ...                             <span style="color:var(--yellow);"># 大量冗余</span>
+    </div>
+
+    <h3>3.3 整体架构缺陷</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>缺陷</th>
+          <th>影响</th>
+          <th>严重度</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>没有并发控制（Semaphore）</td>
+          <td>同时开多个任务会 OOM</td>
+          <td><span class="tag tag-red">🔴 高</span></td>
+        </tr>
+        <tr>
+          <td>没有错误分类与重试策略</td>
+          <td>一律跳过，数据丢失</td>
+          <td><span class="tag tag-red">🔴 高</span></td>
+        </tr>
+        <tr>
+          <td>PlaywrightAgent 与 ClaudeAgent 职责重叠</td>
+          <td>代码冗余、维护困难</td>
+          <td><span class="tag tag-yellow">🟡 中</span></td>
+        </tr>
+        <tr>
+          <td>没有单元测试</td>
+          <td>改代码怕出 bug</td>
+          <td><span class="tag tag-yellow">🟡 中</span></td>
+        </tr>
+        <tr>
+          <td>没有数据校验 pipeline</td>
+          <td>脏数据直接进 CSV</td>
+          <td><span class="tag tag-yellow">🟡 中</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 4. Roadmap -->
+  <div class="section" id="roadmap">
+    <h2>4. 改进路线图</h2>
+
+    <!-- Short term -->
+    <div style="margin-bottom:40px;">
+      <h3>🚀 短期改进（1-2 天）<span class="tag tag-red">立竿见影</span></h3>
+      <p style="color:var(--text-muted);margin-bottom:16px;">爬取成功率预计提升 <strong>+20%~30%</strong></p>
+
+      <div class="timeline">
+        <div class="timeline-item red">
+          <div class="tl-label">优化系统提示词</div>
+          <div class="tl-time">⌛ 2h | 文件: claude_agent.py</div>
+          <p>改为阶段性注入策略：阶段1 首页分析 → 阶段2 学院列表 → 阶段3 教师列表 → 阶段4 详情页提取。减少 Claude 试错轮次。</p>
+        </div>
+        <div class="timeline-item red">
+          <div class="tl-label">修复技能知识库数据污染</div>
+          <div class="tl-time">⌛ 3h | 文件: skills/</div>
+          <p>合并同大学 JSON 文件，删除噪音文件（如"想查哪所大学"），统一命名规范，修正 <code>load_skills_prompt</code> 过滤逻辑。</p>
+        </div>
+        <div class="timeline-item red">
+          <div class="tl-label">停止或优化 progress_pump_llm</div>
+          <div class="tl-time">⌛ 0.5h | 文件: main.py</div>
+          <p>删除每 30 秒调用 DeepSeek 的进度描述器。改为本地规则生成进度（"正在处理第 N/15 个学院"）。每次任务省 20+ 次 API 调用。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mid term -->
+    <div style="margin-bottom:40px;">
+      <h3>🏗️ 中期改进（1-2 周）<span class="tag tag-yellow">架构升级</span></h3>
+      <p style="color:var(--text-muted);margin-bottom:16px;">成功率预计提升 <strong>+50%</strong>，新大学支持速度 <strong>+200%</strong></p>
+
+      <div class="timeline">
+        <div class="timeline-item yellow">
+          <div class="tl-label">增加 Agent 记忆能力</div>
+          <div class="tl-time">⌛ 2d | 文件: new: agent_memory.py</div>
+          <p>实现任务间记忆：URL 模式记忆（南京大学 → /szdw/、/szll/）、选择器记忆、反爬策略记忆。第二次爬同一大学成功率从 ~40% → ~80%。</p>
+        </div>
+        <div class="timeline-item yellow">
+          <div class="tl-label">增加反馈循环（策略回退链）</div>
+          <div class="tl-time">⌛ 2d | 文件: playwright_agent.py</div>
+          <p>策略A(关键词匹配) → 失败 → 策略B(搜索引擎) → 失败 → 策略C(LLM 判断) → 失败 → 策略D(百度 site:edu.cn)。每个策略成功/失败记录到记忆。</p>
+        </div>
+        <div class="timeline-item yellow">
+          <div class="tl-label">构建大学策略注册表</div>
+          <div class="tl-time">⌛ 1d | 文件: new: university_registry.py</div>
+          <p>中心化的大学爬取配置：faculty_entries、dept_selectors、teacher_selectors、detail_pattern、email_pattern、anti_spam。新大学不再从零试探。</p>
+        </div>
+        <div class="timeline-item yellow">
+          <div class="tl-label">增加并发控制 + 单元测试</div>
+          <div class="tl-time">⌛ 1.5d | 文件: main.py, tests/</div>
+          <p>全局 Semaphore 限制并发 Agent 数，防止 OOM。为 Agent 核心逻辑增加单元测试覆盖。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Long term -->
+    <div>
+      <h3>🌌 长期改进（1-2 月）<span class="tag tag-purple">质的飞跃</span></h3>
+      <p style="color:var(--text-muted);margin-bottom:16px;">达到/接近 Claude Code 和 Hermes 的智能水平</p>
+
+      <div class="timeline">
+        <div class="timeline-item green">
+          <div class="tl-label">多 Agent 协作架构</div>
+          <div class="tl-time">⌛ 2w</div>
+          <p>引入专业分工的 Agent 团队：StructureAgent（分析页面结构）→ CrawlAgent（执行爬取）→ VerifyAgent（验证数据质量）。从"碰运气"变成"专业协作"。</p>
+        </div>
+        <div class="timeline-item green">
+          <div class="tl-label">可视化操作界面</div>
+          <div class="tl-time">⌛ 1w</div>
+          <p>实时 DOM 截图、Agent"思考过程"流式展示、已提取数据实时表格更新。用户从"等待中..."变成"看它怎么思考"。</p>
+        </div>
+        <div class="timeline-item green">
+          <div class="tl-label">自助学习 Pipeline</div>
+          <div class="tl-time">⌛ 1w</div>
+          <p>执行总结(LLM) → 经验去重 → 写入策略注册表 → 影响评估。项目越用越聪明，每完成一个任务就积累一份经验。</p>
+        </div>
+        <div class="timeline-item green">
+          <div class="tl-label">Hermes 级 Skills + Memory 系统</div>
+          <div class="tl-time">⌛ 2w</div>
+          <p>Skills v2（版本管理+自动测试+回退）、Memory v1（Episodic+Semantic+Procedural）、Tools v2（HTML 解析+网络请求+数据验证+截图分析）。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Steps -->
+  <div class="section" id="steps">
+    <h2>5. 具体实施步骤</h2>
+
+    <h3>短期（1-2 天）</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>步骤</th>
+          <th>任务</th>
+          <th>文件</th>
+          <th>时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>优化 CRAWL_STRATEGY_PROMPT</td><td><code>claude_agent.py</code></td><td>2h</td></tr>
+        <tr><td>2</td><td>删除噪音 JSON 文件</td><td><code>skills/*.json</code></td><td>1h</td></tr>
+        <tr><td>3</td><td>合并同大学 JSON</td><td><code>skills/</code></td><td>2h</td></tr>
+        <tr><td>4</td><td>停止 progress_pump_llm</td><td><code>main.py</code></td><td>0.5h</td></tr>
+        <tr><td>5</td><td>PlaywrightAgent 增加更多入口关键词</td><td><code>playwright_agent.py</code></td><td>1h</td></tr>
+      </tbody>
+    </table>
+
+    <h3>中期（1-2 周）</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>步骤</th>
+          <th>任务</th>
+          <th>文件</th>
+          <th>时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>实现大学策略注册表</td><td><code>new: university_registry.py</code></td><td>1d</td></tr>
+        <tr><td>2</td><td>实现反馈循环（策略回退链）</td><td><code>playwright_agent.py</code></td><td>2d</td></tr>
+        <tr><td>3</td><td>实现 Agent 记忆持久化</td><td><code>new: agent_memory.py</code></td><td>2d</td></tr>
+        <tr><td>4</td><td>优化技能去重逻辑</td><td><code>skill_manager.py</code></td><td>1d</td></tr>
+        <tr><td>5</td><td>增加并发控制 Semaphore</td><td><code>main.py</code></td><td>0.5d</td></tr>
+        <tr><td>6</td><td>增加单元测试</td><td><code>tests/test_agents.py</code></td><td>1d</td></tr>
+      </tbody>
+    </table>
+
+    <h3>长期（1-2 月）</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>步骤</th>
+          <th>任务</th>
+          <th>时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>多 Agent 协作架构设计与实现</td><td>2w</td></tr>
+        <tr><td>2</td><td>可视化操作界面</td><td>1w</td></tr>
+        <tr><td>3</td><td>自助学习 Pipeline</td><td>1w</td></tr>
+        <tr><td>4</td><td>Hermes 级 Skills + Memory 系统</td><td>2w</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 6. Impact -->
+  <div class="section" id="impact">
+    <h2>6. 预期效果与指标</h2>
+
+    <h3>6.1 量化指标</h3>
+    <div style="overflow-x:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>指标</th>
+          <th>当前</th>
+          <th>短期(2天)</th>
+          <th>中期(2周)</th>
+          <th>长期(2月)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>新大学首爬成功率</td>
+          <td><span class="icon-bad">~35%</span></td>
+          <td><span class="icon-ok">~55%</span></td>
+          <td><span class="icon-ok">~75%</span></td>
+          <td><span class="icon-good">~90%</span></td>
+        </tr>
+        <tr>
+          <td>已爬大学复爬成功率</td>
+          <td><span class="icon-bad">~50%</span></td>
+          <td><span class="icon-ok">~65%</span></td>
+          <td><span class="icon-good">~85%</span></td>
+          <td><span class="icon-good">~95%</span></td>
+        </tr>
+        <tr>
+          <td>单任务平均耗时(10学院)</td>
+          <td>~15min</td>
+          <td>~12min</td>
+          <td>~8min</td>
+          <td>~5min</td>
+        </tr>
+        <tr>
+          <td>邮箱提取准确率</td>
+          <td>~70%</td>
+          <td>~80%</td>
+          <td>~90%</td>
+          <td>~95%</td>
+        </tr>
+        <tr>
+          <td>未知页面适应能力</td>
+          <td><span class="icon-bad">❌ 极差</span></td>
+          <td><span class="icon-ok">⚠️ 有限</span></td>
+          <td><span class="icon-ok">✅ 较好</span></td>
+          <td><span class="icon-good">✅ 优秀</span></td>
+        </tr>
+        <tr>
+          <td>API 浪费(progress_pump)</td>
+          <td><span class="icon-bad">~20次/任务</span></td>
+          <td><span class="icon-good">0次</span></td>
+          <td><span class="icon-good">0次</span></td>
+          <td><span class="icon-good">0次</span></td>
+        </tr>
+        <tr>
+          <td>用户信任感</td>
+          <td><span class="icon-bad">❌ 黑盒</span></td>
+          <td><span class="icon-ok">⚠️ 部分可见</span></td>
+          <td><span class="icon-ok">✅ 可见</span></td>
+          <td><span class="icon-good">✅ 可理解</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h3>6.2 定性效果</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>📆 短期后</h4>
+        <p>"Agent 能爬更多大学了，但遇到新结构还是不行"</p>
+      </div>
+      <div class="card">
+        <h4>📆 中期后</h4>
+        <p>"Agent 学会了一些技巧，第二次爬同一所大学明显快多了"</p>
+      </div>
+      <div class="card">
+        <h4>📆 长期后</h4>
+        <p>"Agent 自己学会怎么爬新大学了，而且爬得越来越好"</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Conclusion -->
+  <div class="section" id="conclusion">
+    <h2>7. 总结</h2>
+
+    <div class="summary-box">
+      <h3>为什么不如 Claude Code / Hermes？</h3>
+      <p style="font-size:1.1em;font-weight:600;margin-top:12px;">UniEmailAgent 是一个<strong style="color:var(--red);">"工具"</strong>而不是一个<strong style="color:var(--green);">"智能体"</strong>。</p>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>对比项</th>
+          <th>UniEmailAgent</th>
+          <th>Claude Code / Hermes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>本质</td><td>爬虫脚本 + CLI 包装</td><td>通用智能体框架</td></tr>
+        <tr><td>记忆</td><td>❌ 无（每次清空）</td><td>✅ 有（持久上下文）</td></tr>
+        <tr><td>学习</td><td>❌ 无（硬编码规则）</td><td>✅ 有（经验累积）</td></tr>
+        <tr><td>规划</td><td>❌ 固定流程</td><td>✅ 动态规划</td></tr>
+        <tr><td>适应</td><td>❌ 0（遇到新结构就失败）</td><td>✅ 强（理解+推理+适应）</td></tr>
+      </tbody>
+    </table>
+
+    <h3>最关键的三件事</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4 style="color:var(--green);">1. 增加持久记忆</h4>
+        <p>Agent 需要记住什么策略有效、什么策略失败。这是从"每次从零开始"到"经验累积"的关键跨越。</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--green);">2. 增加反馈循环</h4>
+        <p>Agent 需要能在失败后自动切换策略。策略A失败 → 策略B → 策略C，而不是"跳过"。</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--purple);">3. 多 Agent 协作</h4>
+        <p>专业分工才能处理复杂任务。结构分析 + 执行爬取 + 数据验证，三个臭皮匠顶个诸葛亮。</p>
+      </div>
+    </div>
+
+    <div class="summary-box" style="margin-top:24px;">
+      <h3>最大的误区</h3>
+      <p style="font-size:1.1em;margin-top:10px;">
+        "加了更好的提示词 = Agent 就更聪明" — <strong style="color:var(--red);">错</strong>
+      </p>
+      <p>ClaudeAgent 本身就是 Claude Code，提示词是 Claude Code 写的。问题是：</p>
+      <ul>
+        <li>它没有记忆 → 下次任务又忘了上次的教训</li>
+        <li>它没有工具 → 只会 Read/Write/Bash，没有专用爬虫工具</li>
+        <li>它没有编排 → 只能顺序执行，不能并行搜索+验证</li>
+      </ul>
+      <p style="margin-top:12px;font-weight:600;">
+        💡 提示词只能占到智能水平的 <strong style="color:var(--yellow);">20%</strong>，剩下的 <strong style="color:var(--green);">80%</strong> 在架构（记忆、工具、编排、学习）。
+      </p>
+    </div>
+
+    <div style="text-align:center;margin-top:48px;padding-top:24px;border-top:1px solid var(--border);color:var(--text-muted);font-size:0.9em;">
+      <p>本报告由 Hermes Agent 自动生成于 2026-06-03</p>
+      <p>基于 <code>D:\Work\test\UniEmailAgent</code> 项目源码的全面分析</p>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

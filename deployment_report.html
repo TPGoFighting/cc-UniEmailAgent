@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniEmail Agent — 部署方案与技术总结</title>
+<style>
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-card: #1e2a45;
+    --text-primary: #e8e8f0;
+    --text-secondary: #9a9ab0;
+    --accent: #22d3ee;
+    --accent-dim: #0891b2;
+    --border: rgba(255,255,255,0.06);
+    --success: #34d399;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+
+  /* Header */
+  header {
+    text-align: center;
+    padding: 60px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  header h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; }
+  header p { color: var(--text-secondary); font-size: 15px; }
+
+  /* Sections */
+  section { margin-bottom: 48px; }
+  section h2 {
+    font-size: 18px; font-weight: 600;
+    margin-bottom: 20px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  section h2 .num {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--accent); color: #000;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; flex-shrink: 0;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .card h3 { font-size: 15px; font-weight: 500; margin-bottom: 12px; color: var(--accent); }
+
+  /* Architecture Diagram */
+  .arch {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 0; padding: 32px 0;
+  }
+  .arch-node {
+    background: var(--bg-card);
+    border: 1px solid rgba(34,211,238,0.2);
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 160px;
+    text-align: center;
+  }
+  .arch-node.highlight { border-color: var(--accent); background: rgba(34,211,238,0.08); }
+  .arch-line {
+    width: 2px; height: 24px;
+    background: rgba(34,211,238,0.25);
+  }
+  .arch-branch { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+  .arch-branch .arch-node { min-width: 120px; font-size: 12px; }
+
+  /* Tables */
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { font-weight: 500; color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { color: var(--text-secondary); }
+  .tag {
+    display: inline-block;
+    padding: 2px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 500;
+  }
+  .tag-green { background: rgba(52,211,153,0.1); color: var(--success); }
+  .tag-red { background: rgba(239,68,68,0.1); color: #ef4444; }
+  .tag-blue { background: rgba(34,211,238,0.1); color: var(--accent); }
+
+  /* Steps */
+  .step { display: flex; gap: 16px; margin-bottom: 16px; }
+  .step-num {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: rgba(34,211,238,0.1);
+    color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; flex-shrink: 0;
+  }
+  .step-content { flex: 1; padding-top: 5px; }
+  .step-content h4 { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+  .step-content p { font-size: 13px; color: var(--text-secondary); }
+
+  /* Tech stack */
+  .tech-stack { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .tech-row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .tech-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 16px;
+    font-size: 12px; font-weight: 500;
+  }
+  .tech-item.accent { border-color: rgba(34,211,238,0.3); }
+
+  /* Config list */
+  .config-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .config-item:last-child { border: none; }
+  .config-key {
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 12px; color: var(--accent);
+  }
+  .config-val {
+    font-size: 12px; color: var(--text-secondary);
+  }
+
+  /* Suggestions */
+  .suggestion {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 16px; margin-bottom: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .suggestion .icon { font-size: 18px; flex-shrink: 0; }
+  .suggestion h4 { font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+  .suggestion p { font-size: 12px; color: var(--text-secondary); }
+
+  /* Footer */
+  footer {
+    text-align: center; padding: 32px 0;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-top: 32px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>UniEmail Agent</h1>
+  <p>部署方案与技术总结</p>
+</header>
+
+<!-- 一、架构图 -->
+<section>
+  <h2><span class="num">1</span> 项目架构</h2>
+  <div class="card">
+    <div class="arch">
+      <div class="arch-node highlight">🌐 用户浏览器</div>
+      <div class="arch-line"></div>
+      <div class="arch-node">⬇️ ⬇️</div>
+      <div class="arch-line"></div>
+      <div class="arch-branch">
+        <div>
+          <div class="arch-node" style="min-width:100px">Nginx 反代</div>
+          <div class="arch-line"></div>
+          <div class="arch-node" style="min-width:100px">📦 Next.js 静态</div>
+        </div>
+        <div>
+          <div class="arch-node" style="min-width:140px">FastAPI 后端 :8010</div>
+          <div class="arch-line"></div>
+          <div class="arch-node" style="min-width:140px">🤖 Hermes Orchestrator</div>
+          <div class="arch-line"></div>
+          <div class="arch-node" style="min-width:140px">⚡ Claude Code 子进程</div>
+        </div>
+      </div>
+      <div class="arch-line"></div>
+      <div class="arch-branch">
+        <div class="arch-node">🧠 Mem0 经验库</div>
+        <div class="arch-node">🗄️ DataMemory</div>
+        <div class="arch-node">📁 Skills 文件</div>
+        <div class="arch-node">✅ Evaluator</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 二、部署方案对比 -->
+<section>
+  <h2><span class="num">2</span> 部署方案对比</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>维度</th><th>VPS（推荐）</th><th>Serverless</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>环境兼容性</td>
+          <td><span class="tag tag-green">✅ 完全兼容</span></td>
+          <td><span class="tag tag-red">❌ 子进程受限</span></td>
+        </tr>
+        <tr>
+          <td>Claude Code 支持</td>
+          <td><span class="tag tag-green">✅ 可运行</span></td>
+          <td><span class="tag tag-red">❌ 无法运行</span></td>
+        </tr>
+        <tr>
+          <td>Playwright 浏览器</td>
+          <td><span class="tag tag-green">✅ 可安装</span></td>
+          <td><span class="tag tag-red">❌ 受限</span></td>
+        </tr>
+        <tr>
+          <td>部署复杂度</td>
+          <td>中等</td>
+          <td>简单</td>
+        </tr>
+        <tr>
+          <td>成本</td>
+          <td>~500 元/年</td>
+          <td>免费额度 ~0</td>
+        </tr>
+        <tr>
+          <td>维护</td>
+          <td>自行管理</td>
+          <td>平台托管</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:16px;font-size:13px;color:var(--accent);">
+      ⚡ 推荐配置：2 核 4G 云服务器 · Ubuntu 22.04 · 50GB 硬盘
+    </p>
+  </div>
+</section>
+
+<!-- 三、Docker 部署 -->
+<section>
+  <h2><span class="num">3</span> Docker 7 步部署</h2>
+  <div class="card">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h4>环境准备</h4>
+        <p>安装 Docker Engine + Docker Compose Plugin</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h4>克隆代码</h4>
+        <p><code style="color:var(--accent);font-size:12px;">git clone &lt;repo&gt; &amp;&amp; cd UniEmailAgent</code></p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h4>配置环境变量</h4>
+        <p>编辑 <code style="font-size:12px;">backend/.env</code>，填入 DEEPSEEK_API_KEY、LANGCHAIN_API_KEY 等</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h4>构建镜像</h4>
+        <p><code style="color:var(--accent);font-size:12px;">docker compose build</code></p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h4>启动服务</h4>
+        <p><code style="color:var(--accent);font-size:12px;">docker compose up -d</code></p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h4>Nginx 反代 + SSL</h4>
+        <p>配置 Certbot 自动申请 HTTPS 证书，绑定域名</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-content">
+        <h4>验证</h4>
+        <p>访问 <code style="font-size:12px;">https://your-domain.com</code> 确认正常运行</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 四、技术栈 -->
+<section>
+  <h2><span class="num">4</span> 后端技术栈</h2>
+  <div class="card">
+    <div class="tech-stack">
+      <div class="tech-row">
+        <div class="tech-item accent">FastAPI</div>
+        <div class="tech-item">→</div>
+        <div class="tech-item accent">HermesOrchestrator</div>
+        <div class="tech-item">→</div>
+        <div class="tech-item accent">Claude Code</div>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);padding:4px 0;">分层中间件</div>
+      <div class="tech-row">
+        <div class="tech-item">🧠 Mem0 经验向量库</div>
+        <div class="tech-item">🗄️ DataMemory 数据索引</div>
+        <div class="tech-item">🛡️ Guardrails 安全过滤</div>
+      </div>
+      <div class="tech-row">
+        <div class="tech-item">✅ Evaluator 质量评估</div>
+        <div class="tech-item">📎 Checkpoint 断点续传</div>
+        <div class="tech-item">🔍 LangSmith 链路追踪</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 五、配置项 -->
+<section>
+  <h2><span class="num">5</span> 关键配置项</h2>
+  <div class="card">
+    <div class="config-item">
+      <span class="config-key">NEXT_PUBLIC_BACKEND_URL</span>
+      <span class="config-val">http://localhost:8010</span>
+    </div>
+    <div class="config-item">
+      <span class="config-key">DEEPSEEK_API_KEY</span>
+      <span class="config-val">sk-xxxxxxxx</span>
+    </div>
+    <div class="config-item">
+      <span class="config-key">LANGCHAIN_API_KEY</span>
+      <span class="config-val">lsv2_xxxxxxxx</span>
+    </div>
+    <div class="config-item">
+      <span class="config-key">LANGCHAIN_TRACING_V2</span>
+      <span class="config-val">true</span>
+    </div>
+    <div class="config-item">
+      <span class="config-key">MEM0_ENABLED</span>
+      <span class="config-val">false</span>
+    </div>
+    <div class="config-item">
+      <span class="config-key">GRAPH_AGENT_ENABLED</span>
+      <span class="config-val">false</span>
+    </div>
+    <div class="config-item">
+      <span class="config-key">GUARD_MODE</span>
+      <span class="config-val">log_only</span>
+    </div>
+  </div>
+</section>
+
+<!-- 六、后续建议 -->
+<section>
+  <h2><span class="num">6</span> 后续建议</h2>
+  <div class="suggestion">
+    <div class="icon">🔒</div>
+    <div>
+      <h4>域名 + HTTPS</h4>
+      <p>使用 Certbot 自动申请 Let's Encrypt 证书，绑定域名提供公网访问</p>
+    </div>
+  </div>
+  <div class="suggestion">
+    <div class="icon">💾</div>
+    <div>
+      <h4>定时备份</h4>
+      <p>cron 定时打包 outputs/ 目录到云存储，防止数据丢失</p>
+    </div>
+  </div>
+  <div class="suggestion">
+    <div class="icon">📊</div>
+    <div>
+      <h4>监控告警</h4>
+      <p>Agent 运行状态、磁盘空间、进程存活的可观测性接入</p>
+    </div>
+  </div>
+  <div class="suggestion">
+    <div class="icon">🚀</div>
+    <div>
+      <h4>CDN 加速</h4>
+      <p>前端静态资源走 CDN，降低服务器带宽压力，提升加载速度</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  UniEmail Agent · 2026-06-04 · 江苏省人工智能学会
+</footer>
+
+</div>
+</body>
+</html>

@@ -14,9 +14,32 @@ from dataclasses import dataclass, field
 from email.message import EmailMessage
 from typing import Any
 
-EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+from cryptography.fernet import Fernet
+import base64
+import os
+
+from constants import EMAIL_RE
+
 VARIABLE_RE = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 HIGH_VOLUME_THRESHOLD = 50
+
+# 加密密钥：优先使用环境变量 SMTP_ENCRYPTION_KEY（BASE64 编码的 32 字节密钥），
+# 否则使用派生固定密钥（进程级）—— 已有 1h TTL，密码不会跨重启持久化。
+_SMTP_ENCRYPTION_KEY = os.environ.get("SMTP_ENCRYPTION_KEY")
+if _SMTP_ENCRYPTION_KEY:
+    _SMTP_CIPHER = Fernet(_SMTP_ENCRYPTION_KEY.encode())
+else:
+    import hashlib
+    _derived = base64.urlsafe_b64encode(hashlib.sha256(b"UniEmailAgent-SMTP-v1").digest())
+    _SMTP_CIPHER = Fernet(_derived)
+
+
+def _encrypt_smtp_password(plain: str) -> str:
+    return _SMTP_CIPHER.encrypt(plain.encode()).decode()
+
+
+def _decrypt_smtp_password(encrypted: str) -> str:
+    return _SMTP_CIPHER.decrypt(encrypted.encode()).decode()
 
 SMTP_PROVIDERS = {
     "qq.com": {"provider": "QQ 邮箱", "host": "smtp.qq.com", "port": 465, "secure": True},
@@ -40,9 +63,24 @@ class SmtpSession:
     port: int
     secure: bool
     user: str
-    password: str
+    _password_encrypted: str = field(repr=False)
     from_name: str
     verified_at: str
+    expires_at: float = field(default_factory=lambda: time.time() + 3600)  # 1h过期
+
+    @property
+    def password(self) -> str:
+        """解密获取密码，调用时解密，避免常驻明文。"""
+        if time.time() > self.expires_at:
+            raise RuntimeError("SMTP session expired")
+        return _decrypt_smtp_password(self._password_encrypted)
+
+    @password.setter
+    def password(self, value: str) -> None:
+        self._password_encrypted = _encrypt_smtp_password(value)
+
+    def is_expired(self) -> bool:
+        return time.time() > self.expires_at
 
 
 @dataclass
@@ -112,7 +150,15 @@ def verify_smtp_config(input_data: dict[str, Any]) -> dict[str, Any]:
     except OSError as exc:
         raise ValueError(f"SMTP 连接失败：{str(exc)[:120]}") from exc
     session_id = str(uuid.uuid4())
-    smtp_sessions[session_id] = SmtpSession(**smtp, verified_at=_now_iso())
+    smtp_sessions[session_id] = SmtpSession(
+        host=smtp["host"],
+        port=smtp["port"],
+        secure=smtp["secure"],
+        user=smtp["user"],
+        from_name=smtp.get("from_name", ""),
+        verified_at=_now_iso(),
+    )
+    smtp_sessions[session_id].password = smtp["password"]  # 触发 setter 加密存储
     return {
         "ok": True,
         "smtpSessionId": session_id,

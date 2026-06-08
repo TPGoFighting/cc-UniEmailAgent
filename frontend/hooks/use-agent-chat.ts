@@ -5,7 +5,8 @@ import { useTaskStore } from "@/stores/task-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useUIStore } from "@/stores/ui-store";
 import { api } from "@/services/api";
-import { isCrawlTask } from "@/services/classify";
+import { getWsManager } from "@/services/websocket";
+import { isCrawlTask, classifyIntent } from "@/services/classify";
 import { useHistory } from "@/hooks/queries/use-history";
 import { useTaskMessages } from "@/hooks/queries/use-task-messages";
 import { useRenameTask, usePinTask, useDeleteTask } from "@/hooks/queries/use-task-mutations";
@@ -42,6 +43,7 @@ export function useAgentChat({
     setCurrentMessages,
     appendMessage,
     setComposerState,
+    setIntent,
     addRunningTask,
     switchToTask,
   } = useChatStore();
@@ -148,12 +150,20 @@ export function useAgentChat({
 
       appendMessage(taskId, userMsg);
 
-      // 占位消息（后端连接提示）
-      const isCrawl = await isCrawlTask(content);
+      // 意图分类 + 存储
+      const intent = await classifyIntent(content);
+      setIntent(taskId, intent);
+
+      // 占位消息（按意图区分）
+      const placeholderMap: Record<string, string> = {
+        new_crawl: "正在连接后端…准备爬取任务",
+        incremental: "正在连接后端…准备增量补充",
+        simple_query: "正在分析数据…",
+      };
       const placeholderMsg: Message = {
         id: nextId(),
         role: "agent",
-        content: isCrawl ? "正在连接后端..." : "正在思考中...",
+        content: placeholderMap[intent.intent] || "正在思考中...",
         isStreaming: true,
       };
       appendMessage(taskId, placeholderMsg);
@@ -210,6 +220,12 @@ export function useAgentChat({
 
     const idx = msgs.length - 1 - lastUserIdx;
     const lastUserMsg = msgs[idx];
+
+    // ── 再生前先断开旧 WS 并停止后端任务 ──
+    getWsManager().disconnect();
+    api.terminateAgent(activeTaskId).catch(() => {
+      // ignore — task may already be done
+    });
 
     // 删除此消息之后的所有消息
     const trimmedMsgs = msgs.slice(0, idx);
@@ -331,6 +347,11 @@ export function useAgentChat({
     (messageId: string) => {
       if (!activeTaskId) return;
       const msgs = useChatStore.getState().taskMessages[activeTaskId] || [];
+      const target = msgs.find((m) => m.id === messageId);
+      if (target) {
+        // 推入撤销队列
+        useChatStore.getState().pushUndo(activeTaskId, target);
+      }
       const filtered = msgs.filter((m) => m.id !== messageId);
       useChatStore.getState().replaceMessages(activeTaskId, filtered);
       useChatStore.getState().setCurrentMessages(filtered);

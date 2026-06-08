@@ -36,7 +36,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
         className="group flex justify-end py-4"
       >
         <div className="flex max-w-[80%] items-start gap-3">
-          <div className="min-w-0 rounded-[24px] rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-[0_1px_3px_rgba(16,163,127,0.15)] dark:shadow-none whitespace-pre-wrap">
+          <div className="min-w-0 rounded-2xl rounded-br-md bg-gradient-to-br from-primary to-primary/90 px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-[0_2px_8px_rgba(34,211,238,0.2)] dark:shadow-[0_2px_12px_rgba(34,211,238,0.15)] whitespace-pre-wrap">
             {message.content}
           </div>
           <div className="flex shrink-0 items-center gap-1 self-end">
@@ -49,7 +49,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 onDelete={() => deleteMessage(message.id)}
               />
             </div>
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/20">
               <User className="size-3.5 text-primary" />
             </div>
           </div>
@@ -112,10 +112,10 @@ export function ChatMessage({ message }: ChatMessageProps) {
             href={downloadUrl}
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-[24px] border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary transition-all hover:-translate-y-[1px] hover:bg-primary/10 hover:border-primary/30"
+            className="group inline-flex items-center gap-2 rounded-2xl border border-primary/20 bg-primary/[0.04] px-4 py-2.5 text-sm font-medium text-primary transition-all duration-250 hover:-translate-y-[0.5px] hover:bg-primary/[0.08] hover:border-primary/30 hover:shadow-[0_0_12px_rgba(34,211,238,0.1)]"
             style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
           >
-            <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+            <span className="shrink-0 rounded-lg bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">
               {extLabel[ext] || ext.toUpperCase()}
             </span>
             <span>{message.content}</span>
@@ -137,10 +137,10 @@ export function ChatMessage({ message }: ChatMessageProps) {
         className="group py-4"
       >
         <div className="flex items-start gap-4">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full overflow-hidden bg-muted">
-            <img src="/avatar.png" alt="Agent" className="size-full object-cover dark:invert" />
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-xl overflow-hidden bg-primary/15 ring-1 ring-primary/20">
+            <img src="/avatar.png" alt="Agent" className="size-full object-cover img-blend" />
           </div>
-          <div className="min-w-0 flex-1 rounded-[24px] rounded-tl-md bg-muted/50 px-5 py-3.5">
+          <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-border/30 bg-card/50 px-5 py-3.5 backdrop-blur-sm">
             <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -195,12 +195,26 @@ export function ChatMessage({ message }: ChatMessageProps) {
         <div className="flex items-start gap-2 pl-2">
           <Bug className="mt-1 size-3 shrink-0 text-muted-foreground/40" />
           <div className="min-w-0 flex-1 rounded-md bg-muted/30 px-3 py-1.5">
-            <code className="text-[11px] leading-relaxed text-muted-foreground/70 break-all font-mono">
-              {message.content}
-              {message.timestamp && (
-                <span className="ml-2 text-[10px] text-muted-foreground/40">[{message.timestamp}]</span>
-              )}
-            </code>
+            <details className="group">
+              <summary className="cursor-pointer text-[11px] font-mono text-muted-foreground/60 hover:text-muted-foreground/80 list-none flex items-center gap-1.5">
+                <span className="text-[10px] transition-transform group-open:rotate-90">▶</span>
+                <span className="truncate flex-1">
+                  <code className="text-[11px] leading-relaxed text-muted-foreground/70 break-all font-mono">
+                    {message.content?.length > 80
+                      ? message.content.slice(0, 80) + "..."
+                      : message.content}
+                  </code>
+                </span>
+                {message.timestamp && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground/40">[{message.timestamp}]</span>
+                )}
+              </summary>
+              <div className="mt-1 max-h-48 overflow-y-auto rounded bg-background/50 p-2">
+                <pre className="text-[11px] leading-relaxed text-muted-foreground/70 whitespace-pre-wrap font-mono">
+                  {message.content}
+                </pre>
+              </div>
+            </details>
           </div>
         </div>
       </motion.div>
@@ -217,7 +231,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
     >
       <div className="flex items-start gap-4">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-full overflow-hidden bg-muted">
-          <img src="/avatar.png" alt="Agent" className="size-full object-cover dark:invert" />
+          <img src="/avatar.png" alt="Agent" className="size-full object-cover img-blend" />
         </div>
         <div className="min-w-0 flex-1 rounded-[24px] rounded-tl-md bg-muted/50 px-5 py-3.5">
           <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground">

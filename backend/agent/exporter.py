@@ -77,8 +77,8 @@ def _make_filename(university: str, ext: str, task_id: str = "") -> str:
     max_major, max_minor, max_patch = 1, 0, 0
     found = False
     try:
-        base = _BASE_OUTPUT_DIR.resolve()
-        for f in base.rglob(f"*{ext}"):
+        base = get_task_dir(task_id).resolve()
+        for f in base.glob(f"*{ext}"):
             name = f.name
             if name.startswith(prefix):
                 # 截取版本号部分 (e.g. major.minor.patch)
@@ -97,6 +97,15 @@ def _make_filename(university: str, ext: str, task_id: str = "") -> str:
         version = f"{max_major}.{max_minor}.{max_patch + 1}"
 
     return f"{safe_uni}{requirements}_V{version}.{ext}"
+
+
+def _sanitize_csv_field(value: str) -> str:
+    """防止 Excel 公式注入：对以 = + - @ \\t 开头的字段加单引号前缀。"""
+    if not value:
+        return value
+    if value and value[0] in ('=', '+', '-', '@', '\t', '\r', '\n'):
+        return "'" + value
+    return value
 
 
 def _build_rows(data: list[dict]) -> list[list]:
@@ -124,7 +133,7 @@ def export_csv(data: list[dict], university: str, task_id: str = "") -> Path:
         writer = csv.writer(f)
         writer.writerow(HEADERS)
         for row in _build_rows(data):
-            writer.writerow(row)
+            writer.writerow([_sanitize_csv_field(str(c)) for c in row])
 
     logger.info(f"CSV 已保存: {filepath}")
     return filepath

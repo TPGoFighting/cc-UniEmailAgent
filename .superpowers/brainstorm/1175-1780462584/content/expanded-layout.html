@@ -1,0 +1,60 @@
+<h2>展开卡片的内部布局</h2>
+<p class="subtitle">选中后展开的卡片中，日期、状态、高校库、操作按钮怎么放？</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">A: 单行信息栏 + 底部操作栏</div>
+    <div class="mockup-body">
+      <div style="width:236px;font-family:system-ui;font-size:13px;">
+        <div style="border-radius:16px;background:rgba(0,0,0,0.06);padding:10px 12px;cursor:pointer;">
+          <!-- 标题 -->
+          <div style="display:flex;align-items:flex-start;gap:8px;">
+            <span style="color:#10A37F;font-size:14px;flex-shrink:0;margin-top:1px;">&#10003;</span>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;font-size:12px;line-height:1.45;">抓取南京大学计算机学院教师邮箱</div>
+              <!-- 元信息行 -->
+              <div style="display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;">
+                <span style="font-size:10px;color:#9A9AA5;">06-03</span>
+                <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#dcfce7;color:#16a34a;">&#10003; 87人</span>
+              </div>
+            </div>
+          </div>
+          <!-- 底部操作栏 -->
+          <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:8px;padding-top:6px;border-top:1px solid rgba(0,0,0,0.04);">
+            <span style="font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;color:#6E6E80;display:flex;align-items:center;gap:3px;">&#127760; 高校库</span>
+            <span style="font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;color:#6E6E80;">&#128204; 置顶</span>
+            <span style="font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;color:#6E6E80;">&#9998; 重命名</span>
+            <span style="font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;color:#ef4444;">&#128465;</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">B: 信息与操作混排在同一行</div>
+    <div class="mockup-body">
+      <div style="width:236px;font-family:system-ui;font-size:13px;">
+        <div style="border-radius:16px;background:rgba(0,0,0,0.06);padding:10px 12px;cursor:pointer;">
+          <!-- 标题 -->
+          <div style="display:flex;align-items:flex-start;gap:8px;">
+            <span style="color:#10A37F;font-size:14px;flex-shrink:0;margin-top:1px;">&#10003;</span>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;font-size:12px;line-height:1.45;">抓取南京大学计算机学院教师邮箱</div>
+              <!-- 信息 + 操作同行 -->
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
+                <span style="font-size:10px;color:#9A9AA5;">06-03</span>
+                <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:#dcfce7;color:#16a34a;">&#10003; 87人</span>
+                <span style="flex:1;"></span>
+                <span style="font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid rgba(0,0,0,0.08);cursor:pointer;color:#6E6E80;">&#127760;</span>
+                <span style="font-size:10px;padding:2px 4px;border-radius:4px;cursor:pointer;color:#9A9AA5;">&#128204;</span>
+                <span style="font-size:10px;padding:2px 4px;border-radius:4px;cursor:pointer;color:#9A9AA5;">&#9998;</span>
+                <span style="font-size:10px;padding:2px 4px;border-radius:4px;cursor:pointer;color:#ef4444;">&#128465;</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

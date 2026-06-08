@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { MessageSquare, Globe, FileSpreadsheet, Search } from "lucide-react";
+import { MessageSquare, Globe, FileSpreadsheet, Search, ArrowRight } from "lucide-react";
 import type { Task } from "@/lib/types";
 
 const suggestedPrompts = [
@@ -21,6 +21,12 @@ const suggestedPrompts = [
     icon: MessageSquare,
     text: "帮我获取浙大数学学院教师联系方式",
   },
+];
+
+const rotatingTips = [
+  "💡 试试说：「帮我抓取南京大学计算机学院教师邮箱」",
+  "💡 试试说：「导出北京大学已抓取的数据」",
+  "💡 试试说：「补充清华大学计算机系缺失的邮箱」",
 ];
 
 const containerVariants = {
@@ -50,40 +56,60 @@ interface EmptyStateProps {
   recentTasks?: Task[];
   onSelectTask?: (task: Task) => void;
   onPromptClick?: (prompt: string) => void;
+  activeTaskId?: string | null;
+  /** 是否在 localStorage 中有上次未完成的任务 */
+  hasUnfinishedTask?: boolean;
 }
 
 export function EmptyState({
   recentTasks,
   onSelectTask,
   onPromptClick,
+  activeTaskId,
+  hasUnfinishedTask,
 }: EmptyStateProps) {
+  // 从 localStorage 读取上次未完成的任务 ID
+  const savedTaskId = typeof window !== "undefined" ? localStorage.getItem("activeTaskId") : null;
+  const showContinueCard = hasUnfinishedTask && savedTaskId && activeTaskId;
+
   return (
     <div className="relative flex flex-1 items-center justify-center overflow-hidden">
-      {/* Ambient animated background — Framer Motion */}
+      {/* Ambient animated background — Cyber Academia */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {/* Primary cyan glow */}
         <motion.div
-          className="absolute -left-20 -top-20 h-[400px] w-[400px] rounded-full bg-primary/[0.03] blur-3xl dark:bg-primary/[0.04]"
+          className="absolute -left-20 -top-20 h-[500px] w-[500px] rounded-full bg-primary/[0.04] blur-3xl"
           animate={{
-            borderRadius: [
-              "60% 40% 30% 70% / 60% 30% 70% 40%",
-              "30% 60% 70% 40% / 50% 60% 30% 60%",
-              "60% 40% 30% 70% / 60% 30% 70% 40%",
-            ],
-            x: [0, 20, 0],
-            y: [0, -10, 0],
+            x: [0, 25, -10, 0],
+            y: [0, -15, 10, 0],
+            scale: [1, 1.05, 0.98, 1],
           }}
           transition={{
-            duration: 12,
+            duration: 18,
             repeat: Infinity,
             ease: "easeInOut",
           }}
         />
+        {/* Secondary indigo glow */}
         <motion.div
-          className="absolute -bottom-32 -right-16 h-[300px] w-[300px] rounded-full bg-primary/[0.02] blur-3xl dark:bg-primary/[0.03]"
+          className="absolute -bottom-40 -right-20 h-[400px] w-[400px] rounded-full bg-accent/[0.03] blur-3xl"
           animate={{
-            x: [0, -15, 0],
-            y: [0, 10, 0],
-            scale: [1, 1.05, 1],
+            x: [0, -20, 10, 0],
+            y: [0, 15, -5, 0],
+            scale: [1, 1.08, 0.95, 1],
+          }}
+          transition={{
+            duration: 22,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        {/* Subtle third glow */}
+        <motion.div
+          className="absolute top-1/3 right-1/4 h-[300px] w-[300px] rounded-full bg-primary/[0.02] blur-3xl"
+          animate={{
+            x: [0, 10, -15, 0],
+            y: [0, -10, 5, 0],
           }}
           transition={{
             duration: 15,
@@ -104,14 +130,44 @@ export function EmptyState({
           variants={itemVariants}
           className="mb-6 flex items-center justify-center"
         >
-          <img src="/logo.png" alt="UniEmail Agent" className="h-28 object-contain" />
+          <img src="/logo.png" alt="UniEmail Agent" className="h-28 object-contain img-blend" />
         </motion.div>
         <motion.p
           variants={itemVariants}
           className="mb-8 text-center text-sm leading-relaxed text-muted-foreground"
         >
-          AI 驱动的高校教师邮箱抓取助手，自动浏览官网、提取邮箱、导出 CSV/XLSX
+          AI 驱动的高校通知系统，自动浏览官网抓取高校通知信息
         </motion.p>
+
+        {/* 上下文恢复卡片 — 继续上次任务 */}
+        {showContinueCard && (
+          <motion.div
+            variants={itemVariants}
+            className="mb-6 w-full"
+          >
+            <div className="rounded-2xl border border-primary/20 bg-primary/[0.04] px-5 py-4 backdrop-blur-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-foreground mb-1">📋 继续上次任务</div>
+                  <p className="text-xs text-muted-foreground">检测到您有未完成的任务，点击继续</p>
+                </div>
+                <button
+                  onClick={() => {
+                    // 找到该任务并选中
+                    if (onSelectTask && recentTasks) {
+                      const saved = recentTasks.find((t) => t.id === savedTaskId);
+                      if (saved) onSelectTask(saved);
+                    }
+                  }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-[0_0_12px_rgba(34,211,238,0.2)] hover:shadow-[0_0_16px_rgba(34,211,238,0.35)] transition-all duration-250"
+                >
+                  继续
+                  <ArrowRight className="size-3.5" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Prompt cards */}
         <motion.div
@@ -122,9 +178,8 @@ export function EmptyState({
             <motion.button
               key={prompt.text}
               onClick={() => onPromptClick?.(prompt.text)}
-              className="group flex flex-col items-start gap-2 rounded-[24px] border p-4 text-left transition-all duration-250 hover:-translate-y-[1px] hover:shadow-[0_2px_12px_rgba(0,0,0,0.04)] dark:hover:shadow-[0_2px_12px_rgba(0,0,0,0.2)]"
+              className="group flex flex-col items-start gap-2 rounded-2xl border border-border/40 bg-card/30 p-4 text-left transition-all duration-250 hover:-translate-y-[0.5px] hover:bg-card/60 hover:border-primary/20 hover:shadow-[0_0_16px_rgba(34,211,238,0.06)]"
               style={{
-                borderColor: "rgba(0,0,0,0.06)",
                 transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
               }}
               whileHover={{ y: -1 }}
@@ -136,6 +191,52 @@ export function EmptyState({
               </span>
             </motion.button>
           ))}
+        </motion.div>
+
+        {/* 动态引导轮播 — 纯 CSS 动画 */}
+        <motion.div
+          variants={itemVariants}
+          className="mb-8 w-full text-center"
+        >
+          <div className="relative h-5 overflow-hidden">
+            {rotatingTips.map((tip, index) => (
+              <span
+                key={index}
+                className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground/70"
+                style={{
+                  animation: `carousel-${index} 15s infinite`,
+                }}
+              >
+                {tip}
+              </span>
+            ))}
+          </div>
+          <style>{`
+            ${rotatingTips.map((_, i) => `
+              @keyframes carousel-${i} {
+                0%, ${(i * 100) / rotatingTips.length - (100 / rotatingTips.length / 3)}% {
+                  opacity: 0;
+                  transform: translate(-50%, 8px);
+                }
+                ${(i * 100) / rotatingTips.length}% {
+                  opacity: 1;
+                  transform: translate(-50%, 0);
+                }
+                ${((i + 1) * 100) / rotatingTips.length - (100 / rotatingTips.length / 3)}% {
+                  opacity: 1;
+                  transform: translate(-50%, 0);
+                }
+                ${((i + 1) * 100) / rotatingTips.length}% {
+                  opacity: 0;
+                  transform: translate(-50%, -8px);
+                }
+                100% {
+                  opacity: 0;
+                  transform: translate(-50%, -8px);
+                }
+              }
+            `).join('\n')}
+          `}</style>
         </motion.div>
 
         {/* Recent tasks */}
@@ -152,7 +253,7 @@ export function EmptyState({
                 <motion.button
                   key={task.id}
                   onClick={() => onSelectTask?.(task)}
-                  className="flex w-full items-center gap-3 rounded-[24px] px-3 py-2 text-left text-sm text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-muted-foreground/60 transition-colors hover:bg-primary/[0.04] hover:text-foreground"
                   whileHover={{ x: 3 }}
                   transition={{ duration: 0.2 }}
                 >

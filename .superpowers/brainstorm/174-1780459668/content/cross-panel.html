@@ -1,0 +1,143 @@
+<h2>跨面板联动</h2>
+<p class="subtitle">场景一：高校库 → 聊天 ｜ 场景二：侧边栏 → 高校库</p>
+
+<h3>场景一：从高校库发起爬取/补充</h3>
+<div class="mockup">
+  <div class="mockup-header">高校库中右键某高校 → 触发聊天</div>
+  <div class="mockup-body" style="padding:20px;background:#fff;display:flex;gap:20px;">
+
+    <!-- 高校库面板 -->
+    <div style="flex:1;border:1px solid rgba(0,0,0,0.06);border-radius:16px;overflow:hidden;">
+      <div style="padding:10px 14px;font-size:12px;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">高校库</div>
+      <div style="padding:8px;">
+        <div style="padding:10px 12px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+          <span style="font-size:13px;font-weight:500;">南京大学</span>
+          <span style="font-size:10px;color:#10A37F;font-weight:600;">2 份数据</span>
+        </div>
+        <!-- 右键菜单 -->
+        <div style="padding:10px 12px;border-radius:12px;background:rgba(16,163,127,0.04);border:1px solid rgba(16,163,127,0.15);margin-bottom:2px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:13px;font-weight:600;color:#111;">南京大学</span>
+            <span style="font-size:9px;color:#6E6E80;">右键菜单</span>
+          </div>
+          <!-- 弹出菜单 -->
+          <div style="margin-top:6px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.08);overflow:hidden;">
+            <div style="padding:8px 12px;font-size:11px;color:#111;display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6E6E80" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+              查看数据详情
+            </div>
+            <div style="padding:8px 12px;font-size:11px;color:#111;display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(16,163,127,0.04);border-left:2px solid #10A37F;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10A37F" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              补充缺失数据
+            </div>
+            <div style="padding:8px 12px;font-size:11px;color:#111;display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6E6E80" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              重新全量抓取
+            </div>
+          </div>
+        </div>
+        <div style="padding:10px 12px;border-radius:12px;margin-bottom:2px;font-size:13px;color:rgba(0,0,0,0.3);">东南大学</div>
+        <div style="padding:10px 12px;border-radius:12px;font-size:13px;color:rgba(0,0,0,0.3);">浙江大学</div>
+      </div>
+    </div>
+
+    <!-- 箭头 -->
+    <div style="display:flex;align-items:center;font-size:20px;color:#ccc;">→</div>
+
+    <!-- 聊天面板结果 -->
+    <div style="flex:1.4;border:1px solid rgba(0,0,0,0.06);border-radius:16px;overflow:hidden;">
+      <div style="padding:10px 14px;font-size:12px;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">聊天区 — 自动填入</div>
+      <div style="padding:12px;">
+        <!-- 切换标签 -->
+        <div style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:24px;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2);font-size:10px;color:#b45309;font-weight:600;margin-bottom:10px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          增量补充 · 南京大学
+        </div>
+        <!-- 输入框预填 -->
+        <div style="border-radius:24px;border:1px solid rgba(0,0,0,0.06);padding:12px 16px;background:#fff;">
+          <span style="font-size:13px;color:#111;">补充南京大学教师邮箱数据，重点补充 </span>
+          <span style="font-size:13px;color:#6E6E80;">[输入缺失的学院名]</span>
+        </div>
+        <p style="margin-top:6px;font-size:10px;color:rgba(0,0,0,0.3);">从高校库 "南京大学" 触发 · 自动带入现有数据上下文</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:28px;">场景二：侧边栏任务 → 跳转高校库</h3>
+<div class="mockup">
+  <div class="mockup-header">任务与高校数据关联</div>
+  <div class="mockup-body" style="padding:20px;background:#fff;display:flex;gap:20px;">
+
+    <!-- 侧边栏 -->
+    <div style="flex:0.8;border:1px solid rgba(0,0,0,0.06);border-radius:16px;overflow:hidden;">
+      <div style="padding:10px 14px;font-size:12px;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">侧边栏</div>
+      <div style="padding:8px;">
+        <div style="padding:8px 10px;border-radius:12px;margin-bottom:2px;display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <span style="font-size:12px;font-weight:500;color:#111;">南京大学计算机系</span>
+            <span style="display:inline-flex;align-items:center;gap:2px;margin-left:6px;padding:1px 5px;border-radius:4px;background:rgba(16,163,127,0.08);font-size:9px;color:#10A37F;">87人</span>
+          </div>
+          <!-- 跳转按钮 -->
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;cursor:pointer;opacity:0.4;" title="在高校库中查看">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </span>
+        </div>
+        <div style="padding:8px 10px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <span style="font-size:12px;font-weight:500;color:#111;">北大数学学院教师</span>
+            <span style="display:inline-flex;align-items:center;gap:2px;margin-left:6px;padding:1px 5px;border-radius:4px;background:rgba(16,163,127,0.08);font-size:9px;color:#10A37F;">156人</span>
+          </div>
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;cursor:pointer;opacity:0.4;" title="在高校库中查看">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 箭头 -->
+    <div style="display:flex;align-items:center;font-size:20px;color:#ccc;">→</div>
+
+    <!-- 高校库面板（自动定位） -->
+    <div style="flex:1.2;border:1px solid rgba(0,0,0,0.06);border-radius:16px;overflow:hidden;">
+      <div style="padding:10px 14px;font-size:12px;font-weight:600;border-bottom:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">高校库 — 自动定位并高亮</div>
+      <div style="padding:8px;">
+        <div style="padding:10px 12px;border-radius:12px;background:rgba(16,163,127,0.04);border:1px solid rgba(16,163,127,0.15);margin-bottom:6px;box-shadow:0 0 0 3px rgba(16,163,127,0.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <span style="font-size:13px;font-weight:600;color:#111;">南京大学</span>
+              <span style="margin-left:6px;font-size:9px;color:#6E6E80;">江苏 · 南京</span>
+            </div>
+            <span style="font-size:9px;color:#10A37F;font-weight:600;">2 份 · 87人</span>
+          </div>
+          <div style="margin-top:6px;display:flex;gap:8px;">
+            <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,163,127,0.1);color:#10A37F;">计算机系 · 64人</span>
+            <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,163,127,0.1);color:#10A37F;">数学学院 · 23人</span>
+          </div>
+        </div>
+        <div style="padding:10px 12px;border-radius:12px;font-size:13px;color:rgba(0,0,0,0.3);">东南大学</div>
+        <div style="padding:10px 12px;border-radius:12px;font-size:13px;color:rgba(0,0,0,0.3);">浙江大学</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:28px;">实现要点</h3>
+<div class="section" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">高校库右键菜单</span><br>
+    给 university-workspace 列表项增加 ContextMenu："补充缺失数据" / "重新全量抓取"。点击后关闭 Sheet，跳转到聊天区，自动填入带大学名的预置指令
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">侧边栏跳转按钮</span><br>
+    任务与大学关联（通过 Task.status + summary API 中的 university 字段）。在任务项右侧加一个外链图标，点击打开高校库 Sheet 并 scrollTo + 高亮目标大学
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">大学识别</span><br>
+    从任务标题或 Agent 结果中提取大学名称（已有 classify API），存到 Task 的 metadata 字段。侧边栏以此来关联跳转
+  </div>
+  <div style="padding:10px 14px;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.01);">
+    <span class="label">高亮动画</span><br>
+    高校库 Sheet 打开后，目标大学行短暂闪烁（amber/primary ring + scale），持续 2s 后恢复，引导视线定位
+  </div>
+</div>

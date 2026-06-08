@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -12,14 +13,40 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator
 
+from agent.tracing import create_run, end_run, start_span, end_span
+from agent.guardrails import check_output, sanitize_output
+
 logger = logging.getLogger(__name__)
+# SUBDEBUG 等详细日志只在 DEBUG 级别输出，避免控制台刷屏
+logger.setLevel(logging.WARNING)
 
 MAX_STEPS = 2000
 TIMEOUT_SECONDS = 3600
 CLAUDE_STARTUP_TIMEOUT = 30
 
+# 允许 claude CLI 使用的工具白名单（替代 bypassPermissions）
+ALLOWED_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
+
 # 爬取策略 system prompt — 注入到用户消息前，指导 Agent 如何深层爬取
-CRAWL_STRATEGY_PROMPT = """## 任务指令
+CRAWL_STRATEGY_PROMPT = """## 🚫 任务隔离红线（最高优先级，违反将导致数据泄露）
+
+你只能操作本任务的专属目录 `{{OUTPUT_DIR}}`，以下是绝对禁止行为：
+- ❌ 使用 Glob/rglob 扫描 outputs/ 根目录或全量遍历 outputs/ 子目录
+- ❌ 读取其他大学/其他任务的 CSV、XLSX、JSON 数据文件
+- ❌ 读取其他大学名称命名的文件（如「东南大学_xxx.csv」）
+- ❌ 使用 `cat`/`head`/`python` 读取 skills/ 以外的其他任务输出文件
+- ✅ 正确做法：直接指定 `{{OUTPUT_DIR}}/文件名.csv` 进行读写
+
+## 📋 启动检查清单（任务开始时必须按顺序执行）
+
+1. **列出本任务目录**：执行 `ls {{OUTPUT_DIR}}/` 了解已有的数据文件
+2. **读取技能知识库**：
+   - 读取 `skills/crawl_knowledge.md`，查找与目标大学相关的章节
+   - 读取 `skills/global_crawling_rules.md`，了解全局爬取规则和避坑指南
+   - 查找 `skills/` 下文件名含目标大学名的 .json 文件，读取历史任务经验
+3. **确认目标 URL**：根据技能库中的 URL 映射或搜索引擎确认目标大学官网地址
+
+## 爬取任务指令
 
 爬取高校教师邮箱，按以下层次操作，不可停留在列表页：
 
@@ -50,6 +77,36 @@ CRAWL_STRATEGY_PROMPT = """## 任务指令
 [FILES]
 文件名.csv | 简短描述
 [/FILES]
+
+### 🧠 任务完成后 — 自我反思与技能沉淀
+任务完成（done）后，你必须回顾本次爬取的难点和解决方案，然后：
+1. 读取 `skills/crawl_knowledge.md` 全文
+2. 如果本次任务有**新的发现**（特殊的网站结构、新的反爬策略、非标准邮箱编码等）：
+   - 在回复末尾用 `[REFLECTION]...[/REFLECTION]` 格式输出反思内容，由后端统一处理
+   - 记录本次爬取的 URL 模式、关键选择器、踩坑与解决方案
+3. 如果本次没有新发现，在回复末尾输出 `[REFLECTION]none[/REFLECTION]`
+4. **禁止**使用 Edit 工具直接修改 skills/ 目录下的任何文件
+
+以下是要爬取的具体任务："""
+
+# 启动检查清单（所有爬取任务都注入，包括追问/增量场景）
+STARTUP_CHECKLIST_PROMPT = """## 🚫 任务隔离红线（最高优先级，违反将导致数据泄露）
+
+你只能操作本任务的专属目录 `{{OUTPUT_DIR}}`，以下是绝对禁止行为：
+- ❌ 使用 Glob/rglob 扫描 outputs/ 根目录或全量遍历 outputs/ 子目录
+- ❌ 读取其他大学/其他任务的 CSV、XLSX、JSON 数据文件
+- ❌ 读取其他大学名称命名的文件（如「东南大学_xxx.csv」）
+- ❌ 使用 `cat`/`head`/`python` 读取 skills/ 以外的其他任务输出文件
+- ✅ 正确做法：直接指定 `{{OUTPUT_DIR}}/文件名.csv` 进行读写
+
+## 📋 启动检查清单（任务开始时必须按顺序执行）
+
+1. **列出本任务目录**：执行 `ls {{OUTPUT_DIR}}/` 了解已有的数据文件
+2. **读取技能知识库**：
+   - 读取 `skills/crawl_knowledge.md`，查找与目标大学相关的章节
+   - 读取 `skills/global_crawling_rules.md`，了解全局爬取规则和避坑指南
+   - 查找 `skills/` 下文件名含目标大学名的 .json 文件，读取历史任务经验
+3. **确认目标 URL**：根据技能库中的 URL 映射或搜索引擎确认目标大学官网地址
 
 以下是要爬取的具体任务："""
 
@@ -121,20 +178,34 @@ class ClaudeAgent:
                     "timestamp": self._timestamp()
                 }
 
+        # LangSmith 三阶段追踪：startup → execute → finish
+        run_id = create_run("claude_execute", {"task_id": task_id, "message": message[:200]})
+        span_startup = start_span("claude_startup", {"task_id": task_id, "phase": "init"})
+        end_span(span_startup)
+        _claude_error = None
         try:
-            async for log in self._run_claude(message, task_id, is_continuation):
-                yield log
+            span_process = start_span("claude_process", {"task_id": task_id, "phase": "execute"})
+            try:
+                async for log in self._run_claude(message, task_id, is_continuation):
+                    yield log
+            except Exception:
+                end_span(span_process, error="执行异常")
+                raise
+            else:
+                end_span(span_process)
+            span_finish = start_span("claude_finish", {"task_id": task_id, "phase": "cleanup"})
+            end_span(span_finish)
         except Exception as e:
+            _claude_error = f"{type(e).__name__}: {str(e)[:200]}"
             import traceback as _tb
-            err_detail = f"{type(e).__name__}: {str(e)[:200]}"
             tb_lines = _tb.format_exc().replace("\n", " | ")
-            logger.warning(f"V2 Claude Code 执行失败: {err_detail} || TRACEBACK: {tb_lines}")
+            logger.warning(f"V2 Claude Code 执行失败: {_claude_error} || TRACEBACK: {tb_lines}")
 
             # 仅爬取任务才回退到 Playwright，追问/普通问答不回退
             if is_crawl_session and not is_continuation:
                 yield {
                     "type": "log",
-                    "message": f"V2 Claude Code 不可用（{err_detail}），切换到内置浏览器 Agent",
+                    "message": f"V2 Claude Code 不可用（{_claude_error}），切换到内置浏览器 Agent",
                     "timestamp": self._timestamp(),
                 }
                 from agent.playwright_agent import PlaywrightAgent
@@ -152,9 +223,11 @@ class ClaudeAgent:
             else:
                 yield {
                     "type": "error",
-                    "message": f"V2 Claude Code 执行失败（{err_detail}）。这不是爬取任务，请检查 claude CLI 是否正常工作。",
+                    "message": f"V2 Claude Code 执行失败（{_claude_error}）。这不是爬取任务，请检查 claude CLI 是否正常工作。",
                     "timestamp": self._timestamp(),
                 }
+        finally:
+            end_run(run_id, error=_claude_error)
 
     async def execute_query(
         self,
@@ -169,6 +242,9 @@ class ClaudeAgent:
         from agent.exporter import _BASE_OUTPUT_DIR
         import csv as _csv
 
+        run_id = create_run("claude_query", {"task_id": task_id, "message": message[:200]})
+        span_analysis = start_span("claude_analysis", {"task_id": task_id, "query": message[:100]})
+
         output_dir = Path(task_output_dir) if task_output_dir else _BASE_OUTPUT_DIR / task_id
 
         # ── 扫描当前任务目录下的数据文件 ──
@@ -179,12 +255,49 @@ class ClaudeAgent:
                     data_files.append(f)
 
         if not data_files:
-            yield {
-                "type": "text",
-                "message": "当前任务还没有生成数据文件，请先执行爬取任务后再查询。",
-                "timestamp": self._timestamp(),
-            }
+            # 常识问答（网址、官网等）→ 直接回答
+            knowledge_qa = [
+                (r"(南京邮电大学|南邮).*网址|(南京邮电大学|南邮).*官网|nuist.*url|nuist.*website", "南京邮电大学官网是 https://www.njupt.edu.cn"),
+                (r"(南京大学|南大).*网址|(南京大学|南大).*官网", "南京大学官网是 https://www.nju.edu.cn"),
+                (r"(东南大学|东大).*网址|(东南大学|东大).*官网", "东南大学官网是 https://www.seu.edu.cn"),
+                (r"(南京理工大学|南理工).*网址|(南京理工大学|南理工).*官网", "南京理工大学官网是 https://www.njust.edu.cn"),
+                (r"(南京航空航天大学|南航).*网址|(南京航空航天大学|南航).*官网", "南京航空航天大学官网是 https://www.nuaa.edu.cn"),
+                (r"(清华大学|北大).*网址|(清华大学|北大).*官网", "清华大学官网是 https://www.tsinghua.edu.cn"),
+                (r"(北京大学|北大).*网址|(北京大学|北大).*官网", "北京大学官网是 https://www.pku.edu.cn"),
+            ]
+            answer = None
+            for pattern, response in knowledge_qa:
+                if re.search(pattern, message, re.IGNORECASE):
+                    answer = response
+                    break
+            if answer:
+                yield {"type": "text", "message": answer, "timestamp": self._timestamp()}
+                end_span(span_analysis)
+                end_run(run_id)
+                yield {"type": "done", "message": "已回答", "timestamp": self._timestamp()}
+                return
+
+            # 打招呼/闲聊 → 友好回应
+            greeting_patterns = [
+                r"^(你好|您好|hi|hello|hey|嗨|早上好|下午好|晚上好|在吗|在不在)[!！.。]*$",
+                r"^(你好|您好|hi|hello)\s*[,，]?\s*(啊|呀|吗|吧)?[!！？?]*$",
+            ]
+            is_greeting = any(re.match(p, message.strip(), re.IGNORECASE) for p in greeting_patterns)
+            if is_greeting:
+                yield {
+                    "type": "text",
+                    "message": "你好！我是 UniEmail Agent，可以帮你爬取高校教师的邮箱信息。\n\n你可以这样跟我说话：\n- 「帮我抓取南京大学计算机学院教师邮箱」\n- 「补充清华大学计算机系缺失的邮箱」\n- 「导出北京大学已抓取的数据为 CSV」",
+                    "timestamp": self._timestamp(),
+                }
+            else:
+                yield {
+                    "type": "text",
+                    "message": "当前任务还没有生成数据文件，请先执行爬取任务后再查询。",
+                    "timestamp": self._timestamp(),
+                }
             yield {"type": "done", "message": "无数据可分析", "timestamp": self._timestamp()}
+            end_span(span_analysis)
+            end_run(run_id)
             return
 
         # ── 读取文件内容做分析 ──
@@ -236,6 +349,8 @@ class ClaudeAgent:
             answer = await self._query_llm_analysis(message, file_stats, api_key)
             if answer:
                 yield {"type": "text", "message": answer, "timestamp": self._timestamp()}
+                end_span(span_analysis)
+                end_run(run_id)
                 yield {"type": "done", "message": "数据分析完毕", "timestamp": self._timestamp()}
                 return
 
@@ -243,6 +358,8 @@ class ClaudeAgent:
         answer = self._local_analysis(message, file_stats)
         yield {"type": "text", "message": answer, "timestamp": self._timestamp()}
         yield {"type": "done", "message": "数据分析完毕", "timestamp": self._timestamp()}
+        end_span(span_analysis)
+        end_run(run_id)
 
     async def _query_llm_analysis(
         self, question: str, file_stats: list[dict], api_key: str
@@ -394,10 +511,11 @@ class ClaudeAgent:
             pass
 
     def _start_subprocess_thread(
-        self, cmd: list[str], env: dict, queue: asyncio.Queue, task_id: str
+        self, cmd: list[str], env: dict, queue: asyncio.Queue, task_id: str, prompt: str = ""
     ) -> None:
         """Windows 兼容：在后台线程启动 subprocess.Popen，stdout 行写入 asyncio.Queue。
 
+        通过 stdin 管道传递 prompt（避免 Windows 命令行长度限制）。
         调用方通过 queue 获取已解码的 stdout 行，每行为 {"_type": "line", "data": str}。"""
         stop_event = threading.Event()
 
@@ -411,12 +529,22 @@ class ClaudeAgent:
 
                 proc = subprocess.Popen(
                     cmd,
+                    stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     env=env,
                     startupinfo=si,
                 )
                 self.active_procs[task_id] = proc
+
+                # 通过 stdin 发送 prompt（纯文本，避免 Windows 命令行长度限制）
+                if prompt:
+                    try:
+                        proc.stdin.write(prompt.encode("utf-8"))
+                        proc.stdin.flush()
+                        proc.stdin.close()
+                    except (BrokenPipeError, OSError) as e:
+                        logger.warning(f"stdin 写入失败: {e}")
 
                 def _read_stderr():
                     try:
@@ -520,9 +648,18 @@ class ClaudeAgent:
 
                 msg_type = parsed.get("_msg_type", "")
                 if msg_type == "assistant":
+                    # 文本 chunks → Agent 思考日志（type="log"），前端默认折叠在日志面板
                     for chunk in parsed.get("_chunks", []):
                         collected_text.append(chunk)
                         has_output = True
+                        chunk = sanitize_output(chunk)
+                        yield {
+                            "type": "log",
+                            "message": chunk,
+                            "timestamp": self._timestamp(),
+                        }
+                    # 工具调用 chunks → 技术日志，作为 type="log"（前端默认隐藏）
+                    for chunk in parsed.get("_tool_chunks", []):
                         yield {
                             "type": "log",
                             "message": chunk,
@@ -531,9 +668,13 @@ class ClaudeAgent:
                 elif msg_type == "result":
                     has_output = True
                     if parsed.get("is_error"):
+                        subtype = parsed.get("_subtype", "unknown")
                         err_text = parsed.get("_text", "").strip()
+                        err_text = sanitize_output(err_text)
                         if not err_text:
-                            err_text = self._last_stderr[-500:] if hasattr(self, "_last_stderr") and self._last_stderr else "Claude Code 执行出错（无详细信息）"
+                            err_text = self._last_stderr[-500:] if hasattr(self, "_last_stderr") and self._last_stderr else f"Claude Code 执行出错（subtype={subtype}，无详细信息）"
+                        else:
+                            err_text = f"{err_text}（subtype={subtype}）"
                         yield {
                             "type": "error",
                             "message": err_text,
@@ -541,11 +682,15 @@ class ClaudeAgent:
                         }
                     else:
                         text = parsed.get("_text", "")
-                        # 去重：result 的文本通常与 assistant 已输出的 content 相同
-                        if text and text not in collected_text:
-                            collected_text.append(text)
+                        text = sanitize_output(text)
+                        # result 文本是 Claude Code 的最终回答 → 作为 type="text" 显示给用户
+                        if not text:
+                            # 无显式 result 文本时，生成一个默认完成提示
+                            # 避免重用 collected_text[-1]（它已是 type="log"，重用会导致内容重复）
+                            text = "## 任务完成\n\nAgent 已执行完所有步骤。"
+                        if text:
                             yield {
-                                "type": "log",
+                                "type": "text",
                                 "message": text,
                                 "timestamp": self._timestamp(),
                             }
@@ -686,27 +831,33 @@ class ClaudeAgent:
     async def _run_claude(
         self, message: str, task_id: str = "", is_continuation: bool = False
     ) -> AsyncGenerator[dict, None]:
-        """通过子进程运行 claude -p。is_continuation=True 时跳过爬取策略注入。"""
+        """通过子进程运行 claude --print（stdin 管道传 prompt，避免命令行长度限制）。"""
         import shutil
 
         if not shutil.which("claude"):
             raise RuntimeError("claude CLI 未安装")
 
-        # 爬取任务自动注入策略 prompt（追问时跳过，上下文已由 main.py 构建）
-        if await self._is_crawl_task(message) and not is_continuation:
+        # 爬取任务自动注入策略 prompt
+        # 新任务：注入完整策略（含爬取指令）；追问/增量：注入启动检查清单（隔离红线 + 读 skills 步骤）
+        if await self._is_crawl_task(message):
             output_dir = f"outputs/{task_id}" if task_id else "outputs"
-            prompt = CRAWL_STRATEGY_PROMPT.replace("{{OUTPUT_DIR}}", output_dir) + "\n" + message
-            logger.info("检测到爬取任务，已注入爬取策略 prompt")
+            if not is_continuation:
+                prompt = CRAWL_STRATEGY_PROMPT.replace("{{OUTPUT_DIR}}", output_dir) + "\n" + message
+                logger.info("检测到爬取任务（新），已注入完整爬取策略 prompt")
+            else:
+                prompt = STARTUP_CHECKLIST_PROMPT.replace("{{OUTPUT_DIR}}", output_dir) + "\n" + message
+                logger.info("检测到爬取任务（追问/增量），已注入启动检查清单 prompt")
         else:
             prompt = message
 
         cmd = [
             "claude",
-            "-p", prompt,
+            "--print",
             "--output-format", "stream-json",
             "--verbose",
             "--no-session-persistence",
             "--permission-mode", "bypassPermissions",
+            "--allowedTools", json.dumps(ALLOWED_TOOLS),
             "--max-budget-usd", "20.0",
         ]
 
@@ -728,7 +879,7 @@ class ClaudeAgent:
         # 使用线程 + subprocess.Popen + asyncio.Queue 桥接方案
         if sys.platform == "win32":
             queue = asyncio.Queue()
-            self._start_subprocess_thread(cmd, env, queue, task_id)
+            self._start_subprocess_thread(cmd, env, queue, task_id, prompt)
             async for log in self._process_stream(queue, task_id, task_start, message):
                 yield log
             return
@@ -736,15 +887,23 @@ class ClaudeAgent:
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
             self.active_procs[task_id] = process
+            # 通过 stdin 发送 prompt（纯文本，避免命令行长度限制）
+            try:
+                process.stdin.write(prompt.encode("utf-8"))
+                await process.stdin.drain()
+                process.stdin.close()
+            except Exception as stdin_err:
+                logger.warning(f"stdin 写入异常: {stdin_err}")
         except NotImplementedError as nie:
             logger.warning(f"create_subprocess_exec 不可用，回退线程方案: {nie}")
             queue = asyncio.Queue()
-            self._start_subprocess_thread(cmd, env, queue, task_id)
+            self._start_subprocess_thread(cmd, env, queue, task_id, prompt)
             async for log in self._process_stream(queue, task_id, task_start, message):
                 yield log
             return
@@ -795,26 +954,27 @@ class ClaudeAgent:
 
         results: list[dict] = []
 
-        # ── 递归收集所有 CSV ──
+        # ── 递归收集 CSV：限定在 task 子目录 + root 临时文件 ──
         candidates: list[Path] = []
-        for f in _BASE_OUTPUT_DIR.rglob("*.csv"):
+
+        # 1. 优先搜索任务专属目录
+        if task_id:
+            safe_tid = task_id.replace("/", "_").replace("\\", "_")
+            task_dir = _BASE_OUTPUT_DIR / safe_tid
+            if task_dir.exists():
+                for f in task_dir.rglob("*.csv"):
+                    try:
+                        if f.stat().st_mtime < after_timestamp - 10 or f.stat().st_size < 200:
+                            continue
+                        candidates.append(f)
+                    except OSError:
+                        continue
+
+        # 2. 兼容旧版：root outputs/ 下的 CSV（仅限直接子文件，不递归）
+        for f in _BASE_OUTPUT_DIR.glob("*.csv"):
             try:
-                # 增加 10 秒时间戳差值容差，杜绝不同操作系统/文件系统精度或轻微时钟偏移引起的新文件漏检
                 if f.stat().st_mtime < after_timestamp - 10 or f.stat().st_size < 200:
                     continue
-                
-                # 任务隔离强校验：如果文件处于其他任务子目录下，则进行过滤排除，防止跨任务数据交叉污染
-                if task_id:
-                    safe_tid = task_id.replace("/", "_").replace("\\", "_")
-                    try:
-                        parent_parts = f.relative_to(_BASE_OUTPUT_DIR).parts
-                        if len(parent_parts) > 1:
-                            subfolder = parent_parts[0]
-                            if subfolder != safe_tid:
-                                continue
-                    except ValueError:
-                        continue
-                
                 candidates.append(f)
             except OSError:
                 continue
@@ -908,6 +1068,7 @@ class ClaudeAgent:
             message = data.get("message", {})
             content_list = message.get("content", [])
             chunks = []
+            tool_chunks = []  # 工具调用相关的日志，与真实 AI 回复内容分离
             tool_uses = []  # 收集本条消息中的工具调用信息
             for item in content_list:
                 if item.get("type") == "text":
@@ -918,12 +1079,14 @@ class ClaudeAgent:
                     tool_name = item.get("name", "unknown")
                     tool_input = item.get("input", {})
                     tool_uses.append({"name": tool_name, "input": tool_input})
-                    chunks.append(f"🔧 调用工具: {tool_name}")
+                    # 工具调用: 从 _chunks 中分离出来，单独用 _tool_chunks 放置
+                    # text chunks 保留在 _chunks 中作为真实 AI 回复内容
+                    tool_chunks.append(f"🔧 调用工具: {tool_name}")
                     input_str = json.dumps(tool_input, ensure_ascii=False)
                     if len(input_str) < 200:
-                        chunks.append(f"   参数: {input_str}")
+                        tool_chunks.append(f"   参数: {input_str}")
 
-            return {"_msg_type": "assistant", "_chunks": chunks, "_tool_uses": tool_uses}
+            return {"_msg_type": "assistant", "_chunks": chunks, "_tool_chunks": tool_chunks, "_tool_uses": tool_uses}
 
         # tool_result
         if msg_type == "user" and data.get("message", {}).get("role") == "user":
@@ -961,6 +1124,7 @@ class ClaudeAgent:
             return {
                 "_msg_type": "result",
                 "_text": result_text,
+                "_subtype": subtype,
                 "is_error": is_error,
                 "duration_ms": duration,
                 "cost_usd": cost,

@@ -4,14 +4,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ===== Design Tokens: OpenAI ChatGPT Design System ===== */
+/* ===== Design Tokens: Cyber Academia ===== */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-heading: var(--font-sora);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,76 +50,76 @@
   --radius-4xl: calc(var(--radius) * 2);
 }
 
-/* ===== Light Mode ===== */
+/* ===== Light Mode (minimal, functional) ===== */
 :root {
-  --background: #FFFFFF;
-  --foreground: #212121;
+  --background: #F8FAFC;
+  --foreground: #0F172A;
   --card: #FFFFFF;
-  --card-foreground: #212121;
+  --card-foreground: #0F172A;
   --popover: #FFFFFF;
-  --popover-foreground: #212121;
-  --primary: #10A37F;
+  --popover-foreground: #0F172A;
+  --primary: #0891B2;
   --primary-foreground: #FFFFFF;
-  --secondary: #F7F7F8;
-  --secondary-foreground: #212121;
-  --muted: #F7F7F8;
-  --muted-foreground: #6E6E80;
-  --accent: #10A37F;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0F172A;
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+  --accent: #6366F1;
   --accent-foreground: #FFFFFF;
-  --destructive: #EF4444;
+  --destructive: #E11D48;
   --border: rgba(0, 0, 0, 0.06);
-  --input: #ECECEC;
-  --ring: #10A37F;
-  --chart-1: #10A37F;
-  --chart-2: #6E6E80;
-  --chart-3: #9A9AA5;
-  --chart-4: #ECECEC;
-  --chart-5: #F7F7F8;
+  --input: #E2E8F0;
+  --ring: #0891B2;
+  --chart-1: #0891B2;
+  --chart-2: #64748B;
+  --chart-3: #94A3B8;
+  --chart-4: #E2E8F0;
+  --chart-5: #F1F5F9;
   --radius: 0.75rem;
-  --sidebar: #F7F7F8;
-  --sidebar-foreground: #212121;
-  --sidebar-primary: #10A37F;
+  --sidebar: #F1F5F9;
+  --sidebar-foreground: #0F172A;
+  --sidebar-primary: #0891B2;
   --sidebar-primary-foreground: #FFFFFF;
   --sidebar-accent: rgba(0, 0, 0, 0.04);
-  --sidebar-accent-foreground: #212121;
+  --sidebar-accent-foreground: #0F172A;
   --sidebar-border: rgba(0, 0, 0, 0.04);
-  --sidebar-ring: #10A37F;
+  --sidebar-ring: #0891B2;
 }
 
-/* ===== Dark Mode ===== */
+/* ===== Dark Mode: Cyber Academia ===== */
 .dark {
-  --background: #202123;
-  --foreground: #ECECF1;
-  --card: #2A2B32;
-  --card-foreground: #ECECF1;
-  --popover: #2A2B32;
-  --popover-foreground: #ECECF1;
-  --primary: #10A37F;
-  --primary-foreground: #FFFFFF;
-  --secondary: #2A2B32;
-  --secondary-foreground: #ECECF1;
-  --muted: #2A2B32;
-  --muted-foreground: #9A9AA5;
-  --accent: #10A37F;
-  --accent-foreground: #FFFFFF;
-  --destructive: #EF4444;
-  --border: rgba(255, 255, 255, 0.08);
+  --background: #0B0F1A;
+  --foreground: #E2E8F0;
+  --card: #111827;
+  --card-foreground: #E2E8F0;
+  --popover: #111827;
+  --popover-foreground: #E2E8F0;
+  --primary: #22D3EE;
+  --primary-foreground: #0B0F1A;
+  --secondary: #1E293B;
+  --secondary-foreground: #E2E8F0;
+  --muted: #1A2035;
+  --muted-foreground: #94A3B8;
+  --accent: #818CF8;
+  --accent-foreground: #0B0F1A;
+  --destructive: #FB7185;
+  --border: rgba(255, 255, 255, 0.06);
   --input: rgba(255, 255, 255, 0.08);
-  --ring: #10A37F;
-  --chart-1: #10A37F;
-  --chart-2: #9A9AA5;
-  --chart-3: #6E6E80;
-  --chart-4: #2A2B32;
-  --chart-5: #202123;
+  --ring: #22D3EE;
+  --chart-1: #22D3EE;
+  --chart-2: #94A3B8;
+  --chart-3: #64748B;
+  --chart-4: #1E293B;
+  --chart-5: #0B0F1A;
   --radius: 0.75rem;
-  --sidebar: #202123;
-  --sidebar-foreground: #ECECF1;
-  --sidebar-primary: #10A37F;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: rgba(255, 255, 255, 0.06);
-  --sidebar-accent-foreground: #ECECF1;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
-  --sidebar-ring: #10A37F;
+  --sidebar: #0D1120;
+  --sidebar-foreground: #E2E8F0;
+  --sidebar-primary: #22D3EE;
+  --sidebar-primary-foreground: #0B0F1A;
+  --sidebar-accent: rgba(255, 255, 255, 0.04);
+  --sidebar-accent-foreground: #E2E8F0;
+  --sidebar-border: rgba(255, 255, 255, 0.04);
+  --sidebar-ring: #22D3EE;
 }
 
 @layer base {
@@ -132,10 +132,168 @@
   html {
     @apply font-sans;
   }
+  /* Custom scrollbar for dark mode */
+  .dark ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .dark ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.2);
+    border-radius: 3px;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.35);
+  }
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
+  /* Selection color */
+  .dark ::selection {
+    background: rgba(34, 211, 238, 0.2);
+    color: #E2E8F0;
+  }
+}
+
+/* ===== Cyber Academia Background Effects ===== */
+
+/* Image blend */
+.img-blend {
+  mix-blend-mode: multiply;
+}
+.dark .img-blend {
+  filter: brightness(0) saturate(100%) invert(1);
+}
+
+/* Ambient grid overlay — removed, was too突兀 */
+.dark .bg-cyber-grid {
+  background-image: none;
+}
+
+/* Subtle radial glow for ambient atmosphere */
+.dark .bg-ambient-glow {
+  background:
+    radial-gradient(ellipse 80% 40% at 50% -10%, rgba(34, 211, 238, 0.03), transparent);
+}
+
+/* Sidebar ambient glow */
+.dark .bg-sidebar-glow {
+  background: none;
+}
+
+/* Card glass effect for dark mode */
+.dark .glass-card {
+  background: rgba(17, 24, 39, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Subtle glow border */
+.dark .glow-border {
+  position: relative;
+}
+.dark .glow-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.3), transparent 50%, rgba(129, 140, 248, 0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ===== Animations ===== */
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(34, 211, 238, 0.15); }
+  50% { box-shadow: 0 0 16px rgba(34, 211, 238, 0.3); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Animation utility classes */
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out both;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out both;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out both;
+}
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* Staggered animation delays */
+.anim-delay-1 { animation-delay: 0.1s; }
+.anim-delay-2 { animation-delay: 0.2s; }
+.anim-delay-3 { animation-delay: 0.3s; }
+.anim-delay-4 { animation-delay: 0.4s; }
+.anim-delay-5 { animation-delay: 0.5s; }
+
+/* ===== Stat Pop Animation ===== */
+@keyframes stat-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.25); color: rgb(34 197 94); }
+  100% { transform: scale(1); }
+}
+.stat-pop {
+  animation: stat-pop 0.4s ease-out;
+}
+
+/* ===== Primary button glow for dark mode ===== */
+.dark .btn-primary-glow {
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.25);
+  transition: box-shadow 0.3s ease;
+}
+.dark .btn-primary-glow:hover {
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
 }
 
 /* ===== Reduced Motion ===== */

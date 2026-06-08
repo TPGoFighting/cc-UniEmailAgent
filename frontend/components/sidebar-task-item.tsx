@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Loader2, CheckCircle2, XCircle, Pin, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/lib/types";
 
@@ -11,8 +11,28 @@ interface SidebarTaskItemProps {
   isRunning?: boolean;
   onSelect: () => void;
   onRename: (newTitle: string) => void;
-  onPin: () => void;
   onDelete: () => void;
+}
+
+const MAX_TITLE_LENGTH = 12;
+
+function truncateTitle(title: string): string {
+  if (title.length <= MAX_TITLE_LENGTH) return title;
+  return title.slice(0, MAX_TITLE_LENGTH) + "…";
+}
+
+function hasData(task: Task): boolean {
+  if (task.status !== "completed") return false;
+  if (!task.messages) return false;
+  return task.messages.some((m) => m.role === "download");
+}
+
+function StatusIcon({ task, isRunning }: { task: Task; isRunning: boolean }) {
+  return null;
+}
+
+function StatusBadge({ task, isRunning }: { task: Task; isRunning: boolean }) {
+  return null;
 }
 
 export function SidebarTaskItem({
@@ -21,7 +41,6 @@ export function SidebarTaskItem({
   isRunning = false,
   onSelect,
   onRename,
-  onPin,
   onDelete,
 }: SidebarTaskItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
@@ -43,28 +62,46 @@ export function SidebarTaskItem({
     setIsRenaming(false);
   };
 
-  return (
-    <div className="group relative">
+
+  // ===== 折叠态：图标 + 截断单行标题 + 状态标签 =====
+  if (!isActive) {
+    return (
       <button
         onClick={onSelect}
         className={cn(
-          "flex w-full items-start gap-3 rounded-[24px] px-3 py-2.5 text-left transition-colors duration-250 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]",
-          isActive && "bg-black/[0.06] dark:bg-white/[0.08]"
+          "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-250",
+          "hover:bg-primary/[0.06] hover:text-primary",
+          "group",
         )}
         style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
       >
         <div className="mt-0.5 shrink-0">
-          {task.pinned ? (
-            <Pin className="size-3.5 text-primary/60" />
-          ) : isRunning ? (
-            <Loader2 className="size-3.5 animate-spin text-primary" />
-          ) : task.status === "completed" ? (
-            <CheckCircle2 className="size-3.5 text-primary" />
-          ) : task.status === "running" ? (
-            <div className="size-3.5 animate-pulse rounded-full bg-primary/60" />
-          ) : (
-            <XCircle className="size-3.5 text-muted-foreground/40" />
-          )}
+          <StatusIcon task={task} isRunning={isRunning} />
+        </div>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/70 transition-colors duration-250 group-hover:text-foreground">
+          {truncateTitle(task.title)}
+        </span>
+        <StatusBadge task={task} isRunning={isRunning} />
+      </button>
+    );
+  }
+
+  // ===== 展开态：完整标题 + 元信息行 + 操作栏 =====
+  return (
+    <div
+      className={cn(
+        "rounded-xl transition-all duration-250",
+        "bg-primary/[0.06] ring-1 ring-primary/20",
+      )}
+      style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
+    >
+      {/* 主内容区（可点击选择） */}
+      <button
+        onClick={onSelect}
+        className="flex w-full items-start gap-3 px-3 pt-2.5 pb-2 text-left"
+      >
+        <div className="mt-0.5 shrink-0">
+          <StatusIcon task={task} isRunning={isRunning} />
         </div>
         <div className="min-w-0 flex-1">
           {isRenaming ? (
@@ -77,51 +114,46 @@ export function SidebarTaskItem({
                 if (e.key === "Escape") setIsRenaming(false);
               }}
               onBlur={handleRenameSubmit}
-              className="w-full rounded-md border border-border bg-background px-1.5 py-0.5 text-sm outline-none"
+              className="w-full rounded-lg border border-border bg-background px-2 py-1 text-sm outline-none ring-1 ring-primary/20"
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
-            <p className="truncate text-sm font-medium text-foreground/80 group-hover:text-foreground">
-              {task.title}
+            <p className="text-sm font-medium text-foreground leading-snug">
+              {truncateTitle(task.title)}
             </p>
           )}
-          <p className="text-xs text-[#9A9AA5] dark:text-[#6E6E80]">{task.date}</p>
         </div>
       </button>
 
-      {/* Hover 操作按钮 */}
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 transition-opacity duration-250 group-hover:opacity-100">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onPin();
-          }}
-          className="rounded-lg p-1.5 text-muted-foreground/50 hover:bg-black/[0.06] hover:text-muted-foreground dark:hover:bg-white/[0.08]"
-          title={task.pinned ? "取消置顶" : "置顶"}
-        >
-          <Pin className={cn("size-3", task.pinned && "fill-primary/60 text-primary")} />
-        </button>
+      {/* 分隔线 */}
+      <div className="mx-3 border-t border-border/30" />
+
+      {/* 底部操作栏 */}
+      <div className="flex items-center justify-between gap-1 px-3 py-2">
+        <span className="text-[10px] text-muted-foreground/50 px-1">{task.date}</span>
+        <div className="flex items-center gap-1">
         <button
           onClick={(e) => {
             e.stopPropagation();
             setRenameValue(task.title);
             setIsRenaming(true);
           }}
-          className="rounded-lg p-1.5 text-muted-foreground/50 hover:bg-black/[0.06] hover:text-muted-foreground dark:hover:bg-white/[0.08]"
-          title="重命名"
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-muted-foreground/50 hover:bg-primary/10 hover:text-primary transition-colors whitespace-nowrap"
         >
           <Pencil className="size-3" />
+          重命名
         </button>
         <button
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
           }}
-          className="rounded-lg p-1.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
-          title="删除"
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-muted-foreground/50 hover:bg-destructive/15 hover:text-destructive transition-colors whitespace-nowrap"
         >
           <Trash2 className="size-3" />
+          删除
         </button>
+        </div>
       </div>
     </div>
   );
