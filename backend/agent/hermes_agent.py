@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 MAX_STEPS = 10000
 TIMEOUT_SECONDS = 600
 HERMES_STARTUP_TIMEOUT = 30
-DEFAULT_MODEL = "deepseek/deepseek-v4-pro"
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 
 SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
