@@ -69,19 +69,20 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("agent.claude_agent").setLevel(logging.WARNING)
 
-# Agent 选择策略（优先级：OpenClaw > GraphAgent > Hermes > Claude）
+# Agent 选择策略（优先级：HermesAgent > HermesOrchestrator > GraphAgent > OpenClaw > Claude）
 try:
     import shutil
-    if shutil.which("openclaw"):
-        from agent.openclaw_agent import OpenClawAgent
-        agent = OpenClawAgent()
-        logger.info("使用 OpenClaw Agent（DeepSeek 引擎）")
+    if shutil.which("hermes"):
+        from agent.hermes_agent import HermesAgent
+        agent = HermesAgent()
+        logger.info("使用 Hermes Agent（CLI 子进程引擎）")
     elif os.environ.get("GRAPH_AGENT_ENABLED", "").lower() in ("true", "1", "yes"):
         agent = GraphAgent()
         logger.info("使用 GraphAgent（LangGraph 状态机）")
-    elif shutil.which("hermes"):
-        agent = HermesOrchestrator()
-        logger.info("使用 Hermes Agent（智能引擎）")
+    elif shutil.which("openclaw"):
+        from agent.openclaw_agent import OpenClawAgent
+        agent = OpenClawAgent()
+        logger.info("使用 OpenClaw Agent（DeepSeek 引擎）")
     else:
         agent = ClaudeAgent()
         logger.info("使用 Claude Agent（回退）")
@@ -1679,9 +1680,11 @@ async def agent_logs(ws: WebSocket, task_id: str):
         old_task = _running_agent_tasks[task_id]
         if not old_task.done():
             logger.warning(f"task {task_id} has running handler, cancelling old one")
-            # 先杀 Claude Code 子进程
+            # 先杀 Agent 子进程（兼容 HermesOrchestrator / ClaudeAgent / OpenClawAgent）
             try:
-                old_proc = agent._claude.active_procs.pop(task_id, None)
+                # 编排器通过 _agent 或 _claude 持有底层执行器
+                inner = getattr(agent, "_agent", None) or getattr(agent, "_claude", None) or agent
+                old_proc = inner.active_procs.pop(task_id, None)
                 if old_proc:
                     old_proc.kill()
             except Exception:
