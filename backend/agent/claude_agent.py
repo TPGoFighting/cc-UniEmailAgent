@@ -767,18 +767,32 @@ class ClaudeAgent:
         # prompt 已由 Hermes/上层构建完毕，ClaudeAgent 不再注入任何额外内容
         prompt = message
 
-        cmd = [
-            "sudo",
-            "-u", "uniemail",
-            "claude",
-            "--print",
-            "--output-format", "stream-json",
-            "--verbose",
-            "--no-session-persistence",
-            "--permission-mode", "bypassPermissions",
-            "--allowedTools", json.dumps(ALLOWED_TOOLS),
-            "--max-budget-usd", "20.0",
-        ]
+        if sys.platform == "linux":
+            # Linux: 用 su - uniemail 绕过 root bypassPermissions 限制
+            cmd = [
+                "su", "-", "uniemail", "-c",
+                " ".join([
+                    "claude",
+                    "--print",
+                    "--output-format", "stream-json",
+                    "--verbose",
+                    "--no-session-persistence",
+                    "--permission-mode", "bypassPermissions",
+                    "--allowedTools", json.dumps(ALLOWED_TOOLS),
+                    "--max-budget-usd", "20.0",
+                ])
+            ]
+        else:
+            cmd = [
+                "claude",
+                "--print",
+                "--output-format", "stream-json",
+                "--verbose",
+                "--no-session-persistence",
+                "--permission-mode", "bypassPermissions",
+                "--allowedTools", json.dumps(ALLOWED_TOOLS),
+                "--max-budget-usd", "20.0",
+            ]
 
         env = os.environ.copy()
 
