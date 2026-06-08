@@ -1551,15 +1551,17 @@ async def _generate_progress_summary(recent_logs: list[str]) -> str:
 
     # 回退：本地关键词匹配
     combined = "\n".join(recent_logs[-5:]).lower()
-    if any(kw in combined for kw in ["下载", "download", "文件", "csv", "xlsx"]):
-        return "整理爬取结果，生成表格文件"
-    if any(kw in combined for kw in ["邮箱", "email", "@"]):
-        return "逐条提取并验证教师邮箱"
-    if any(kw in combined for kw in ["教师", "教授", "faculty", "页面", "访问"]):
-        return "访问教师个人页面，查找联系方式"
-    if any(kw in combined for kw in ["搜索", "查找", "查找", "寻找", "search"]):
-        return "搜索结果页面，定位教师列表"
-    return "执行爬取任务中"
+    for kw_set, summary in [
+        (["下载", "download", "文件", "csv", "xlsx", "导出"], "整理爬取结果，生成表格文件"),
+        (["邮箱", "email", "@", "电子邮件"], "逐条提取并验证教师邮箱"),
+        (["教师", "教授", "faculty", "页面", "访问", "详情", "个人"], "访问教师个人页面，查找联系方式"),
+        (["搜索", "查找", "寻找", "search", "导航"], "浏览站点地图，定位教师列表"),
+        (["click", "点击", "navigate", "goto"], "浏览页面，收集信息"),
+        (["snapshot", "截图", "screenshot", "📸"], "分析页面结构，提取数据"),
+    ]:
+        if any(kw in combined for kw in kw_set):
+            return summary
+    return "正在爬取目标网站数据"
 
 
 async def _progress_pump_llm(ws: WebSocket, stop_event: asyncio.Event, log_collector: list) -> None:
