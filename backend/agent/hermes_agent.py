@@ -159,15 +159,25 @@ class HermesAgent:
         self.active_procs[task_id] = process
 
         reply_text = ""
+        in_prompt_block = False
         try:
             async for raw_line in process.stdout:
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
                 # 清理 ANSI 转义
                 cleaned = re.sub(r'\x1b\[[0-9;]*[mK]', '', line)
                 stripped = cleaned.strip()
-                # 跳过 Query: 开头的 prompt 内容（不是 Agent 日志）
-                if not stripped or stripped.startswith("Query:"):
+                if not stripped:
                     continue
+                # 跳过 Query: 行及其后的整个 prompt 内容块
+                if stripped.startswith("Query:"):
+                    in_prompt_block = True
+                    continue
+                # prompt 块在分隔线或 ⚕ Hermes 出现时结束
+                if in_prompt_block:
+                    if "⚕" in stripped or stripped.startswith("──") or stripped.startswith("─"):
+                        in_prompt_block = False
+                    else:
+                        continue  # 还在 prompt 块中，跳过
                 yield {"type": "log", "message": stripped, "timestamp": self._timestamp()}
                 reply_text += stripped + "\n"
 
