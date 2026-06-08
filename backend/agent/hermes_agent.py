@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import threading
@@ -129,11 +130,9 @@ class HermesAgent:
             raise RuntimeError("hermes CLI 未安装")
 
         cmd = [
-            "hermes", "chat",
-            "-q", message,
-            "--yolo",
-            "-m", self.model,
-            "--cli",
+            "script", "-qfc",
+            f"hermes chat -q {shlex.quote(message)} --yolo -m {shlex.quote(self.model)} --cli",
+            "/dev/null"
         ]
 
         env = os.environ.copy()
