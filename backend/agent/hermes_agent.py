@@ -11,7 +11,6 @@ import os
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import threading
@@ -53,25 +52,24 @@ class HermesAgent:
         return True
 
     def stop_task(self, task_id: str) -> bool:
-        """暴力终止 hermes 子进程及其整个进程树。"""
+        """终止正在运行的 hermes 子进程。"""
         self._stopped_tasks.add(task_id)
         proc = self.active_procs.pop(task_id, None)
         if not proc:
             return False
         try:
-            pgid = os.getpgid(proc.pid)
             # 先 SIGTERM 给机会优雅退出
-            os.killpg(pgid, signal.SIGTERM)
+            proc.terminate()
             try:
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                os.killpg(pgid, signal.SIGKILL)  # 强杀
-            logger.info(f"成功终止 Task {task_id} 进程树 (PGID={pgid})")
+                proc.kill()  # 强杀
+            logger.info(f"成功终止 Task {task_id} 子进程")
             return True
         except ProcessLookupError:
-            return True  # 进程已退出
+            return True
         except Exception as e:
-            logger.error(f"终止 Task {task_id} 进程树失败: {e}")
+            logger.error(f"终止 Task {task_id} 失败: {e}")
             try:
                 proc.kill()
             except Exception:
