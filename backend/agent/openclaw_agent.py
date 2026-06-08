@@ -83,9 +83,13 @@ class OpenClawAgent:
         with open(prompt_file, "w", encoding="utf-8") as f:
             f.write(message)
 
-        # 直接调用 openclaw（不用包装脚本，避免 su 引号问题）
-        openclaw_cmd = f"cat {prompt_file} | openclaw agent --local -m \"$(cat {prompt_file})\" --json --session-key {session_key} 2>/dev/null"
-        cmd = ["su", "-", "uniemail", "-c", f"export HOME=/root && {openclaw_cmd}"]
+        # 直接调用 openclaw（root 身份，配置已有）
+        cmd = [
+            "openclaw", "agent", "--local",
+            "-m", message,
+            "--json",
+            "--session-key", session_key,
+        ]
 
         try:
             proc = await asyncio.create_subprocess_exec(
