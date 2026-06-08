@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # SUBDEBUG 等详细日志只在 DEBUG 级别输出，避免控制台刷屏
 logger.setLevel(logging.WARNING)
 
-MAX_STEPS = 2000
+MAX_STEPS = 10000
 TIMEOUT_SECONDS = 3600
 CLAUDE_STARTUP_TIMEOUT = 30
 
@@ -700,7 +700,15 @@ class ClaudeAgent:
         try:
             if is_threaded:
                 while True:
-                    msg = await process.get()
+                    try:
+                        msg = await asyncio.wait_for(process.get(), timeout=TIMEOUT_SECONDS)
+                    except asyncio.TimeoutError:
+                        yield {
+                            "type": "error",
+                            "message": f"任务超时 ({TIMEOUT_SECONDS}s)，已终止",
+                            "timestamp": self._timestamp(),
+                        }
+                        return
                     logger.info("[SUBDEBUG] 收到队列消息 _type=%s", msg.get("_type", "?"))
                     if msg["_type"] == "line":
                         line_preview = msg["data"][:100] if isinstance(msg.get("data"), str) else "?"
