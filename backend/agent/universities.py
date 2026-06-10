@@ -330,7 +330,9 @@ def get_university_records(name: str) -> dict[str, Any]:
             "previewable": path.suffix.lower() in (".csv", ".xlsx"),
         })
     # 按有效邮箱数降序排列（数据最完善的排最前）
-    records.sort(key=lambda r: r["valid_email_count"], reverse=True)
+    records.sort(key=lambda r: (r["previewable"], r["valid_email_count"], r["row_count"], r["size"]), reverse=True)
+    for i, record in enumerate(records):
+        record["is_best"] = i == 0 and record.get("previewable", False)
     return {"name": name, "summary": output_stats_for_school(name, files), "records": records, "table_files": len(table_files)}
 
 
@@ -726,7 +728,7 @@ def clean_university_tables(name: str) -> dict[str, Any]:
         })
 
     # 导出 CSV 和 XLSX 到一个新建的 task-like 目录中，以便下载端点能直接访问
-    clean_task_id = f"__clean__/{name}_{ts}"
+    clean_task_id = f"__clean___{name}_{ts}"
     get_task_dir(clean_task_id)
     summary_filename = f"{name}_清洗后汇总_{ts}"
     result_files = {}

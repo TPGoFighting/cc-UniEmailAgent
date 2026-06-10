@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, UploadFile, File
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -106,6 +106,28 @@ async def lifespan(app: FastAPI):
     _task_start_times.clear()
     _trace_runs.clear()
     logger.info("UniEmail Agent 后端启动（状态已清空）")
+    
+    # 1. 注入大模型计费审计补丁
+    try:
+        from agent.billing import init_billing_patch
+        init_billing_patch()
+    except Exception as e:
+        logger.error(f"计费审计补丁注入失败: {e}")
+
+    # 2. 从 config.json 加载配置，并写入内存环境变量
+    try:
+        from agent.config import sync_llm_settings_to_environ
+        sync_llm_settings_to_environ()
+        logger.info("已成功同步 UI 设置中的 API Key 到当前进程及子进程的环境变量")
+    except Exception as e:
+        logger.warning(f"启动时加载配置失败: {e}")
+
+    # 3. 异步启动环境依赖自动配置检查（未安装的项自动帮用户安装，已安装的直接跳过）
+    try:
+        from agent.dependency_installer import DependencyInstaller
+        DependencyInstaller().start_install()
+    except Exception as e:
+        logger.error(f"启动自动依赖安装检查失败: {e}")
     yield
     logger.info("UniEmail Agent 后端关闭")
 
@@ -133,6 +155,11 @@ class ChatResponse(BaseModel):
 
 class ClassifyRequest(BaseModel):
     message: str
+
+
+class AssistantRequest(BaseModel):
+    message: str
+    university: str | None = None
 
 
 class RenameRequest(BaseModel):
@@ -173,20 +200,188 @@ class TerminateRequest(BaseModel):
     task_id: str
 
 
+def _owner_id(value: str | None = None) -> str:
+    value = (value or "").strip()
+    if not value:
+        return ""
+    return re.sub(r"[^a-zA-Z0-9_.:-]", "_", value)[:128]
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
 
 
+class ConfigUpdateSchema(BaseModel):
+    service_mode: str
+    service_token: str | None = None
+    deepseek_api_key: str | None = None
+
+
+@app.get("/api/config")
+async def get_config():
+    from agent.config import load_config
+    config = load_config()
+    
+    def mask_key(k: str) -> str:
+        if not k or len(k) < 8:
+            return ""
+        return f"{k[:4]}...{k[-4:]}"
+    
+    masked_config = {
+        "service_mode": config.get("service_mode", "custom"),
+        "service_token": mask_key(config.get("service_token", "")),
+        "deepseek_api_key": mask_key(config.get("deepseek_api_key", "")),
+        "has_deepseek_key": bool(config.get("deepseek_api_key", "")),
+    }
+    from agent.billing import get_session_token_usage
+    masked_config["session_tokens"] = get_session_token_usage()
+    return masked_config
+
+
+@app.post("/api/config")
+async def update_config(req: ConfigUpdateSchema):
+    from agent.config import load_config, save_config
+    current = load_config()
+    
+    def mask_key(k: str) -> str:
+        if not k or len(k) < 8:
+            return ""
+        return f"{k[:4]}...{k[-4:]}"
+    
+    current_masked = mask_key(current.get("deepseek_api_key", ""))
+    if req.deepseek_api_key is not None and req.deepseek_api_key != current_masked:
+        current["deepseek_api_key"] = req.deepseek_api_key
+    
+    if req.service_token is not None and not req.service_token.startswith("http") and mask_key(req.service_token) != req.service_token:
+        current["service_token"] = req.service_token
+        
+    current["service_mode"] = req.service_mode
+    save_config(current)
+    
+    # 同步环境变量
+    from agent.config import sync_llm_settings_to_environ
+    sync_llm_settings_to_environ()
+        
+    return {"ok": True}
+
+
+@app.get("/api/diagnostics")
+async def get_diagnostics():
+    import shutil
+    node_ok = bool(shutil.which("node"))
+    claude_ok = bool(shutil.which("claude"))
+    hermes_ok = bool(shutil.which("hermes"))
+    
+    playwright_ok = False
+    try:
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        if localappdata:
+            pw_dir = Path(localappdata) / "ms-playwright"
+            if pw_dir.exists() and any(pw_dir.glob("chromium-*")):
+                playwright_ok = True
+    except Exception:
+        pass
+        
+    return {
+        "node": node_ok,
+        "claude_code": claude_ok,
+        "hermes": hermes_ok,
+        "playwright": playwright_ok,
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    }
+
+
+@app.get("/api/diagnostics/install-status")
+async def get_install_status():
+    from agent.dependency_installer import DependencyInstaller
+    return DependencyInstaller().get_status()
+
+
+@app.post("/api/diagnostics/install")
+async def trigger_install():
+    from agent.dependency_installer import DependencyInstaller
+    DependencyInstaller().start_install()
+    return {"ok": True}
+
+
+_mock_orders = {}
+
+@app.get("/api/billing/balance")
+async def get_billing_balance():
+    from agent.config import load_config, save_config
+    import uuid
+    config = load_config()
+    changed = False
+    if not config.get("service_token"):
+        config["service_token"] = "WTX-" + str(uuid.uuid4())[:18].upper()
+        changed = True
+    if "balance_yuan" not in config:
+        config["balance_yuan"] = 5.00
+        changed = True
+    if changed:
+        save_config(config)
+    return {
+        "service_token": config["service_token"],
+        "balance_yuan": round(config["balance_yuan"], 2)
+    }
+
+@app.post("/api/billing/recharge/create")
+async def create_recharge(data: dict):
+    import uuid
+    amount = data.get("amount", 10.0)
+    method = data.get("method", "wechat")
+    order_id = "WTX-ORD-" + str(uuid.uuid4())[:8].upper()
+    
+    # 使用公共的 QR 生成 API 做二维码，数据内容为订单确认 URL
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://wtx-pay-mock.wtx.com/{order_id}"
+    
+    _mock_orders[order_id] = {
+        "amount": amount,
+        "method": method,
+        "status": "pending"
+    }
+    return {
+        "order_id": order_id,
+        "amount": amount,
+        "method": method,
+        "qr_url": qr_url,
+        "status": "pending"
+    }
+
+@app.post("/api/billing/recharge/mock-confirm")
+async def confirm_recharge(data: dict):
+    from agent.config import load_config, save_config
+    order_id = data.get("order_id")
+    if not order_id or order_id not in _mock_orders:
+        return {"ok": False, "error": "Order not found"}
+        
+    order = _mock_orders[order_id]
+    if order["status"] == "success":
+        config = load_config()
+        return {"ok": True, "balance_yuan": round(config.get("balance_yuan", 0.0), 2)}
+        
+    order["status"] = "success"
+    config = load_config()
+    config["balance_yuan"] = config.get("balance_yuan", 5.00) + order["amount"]
+    save_config(config)
+    
+    return {
+        "ok": True,
+        "balance_yuan": round(config["balance_yuan"], 2),
+        "message": f"成功充值 {order['amount']} 元！"
+    }
+
+
 @app.get("/api/history")
-async def get_history():
-    tasks_list = history.get_all()
+async def get_history(x_uniemail_user_id: str | None = Header(default=None)):
+    tasks_list = history.get_all(_owner_id(x_uniemail_user_id))
     return {"tasks": tasks_list}
 
 
 @app.get("/api/history/search")
-async def search_history(q: str = ""):
-    results = history.search(q)
+async def search_history(q: str = "", x_uniemail_user_id: str | None = Header(default=None)):
+    results = history.search(q, _owner_id(x_uniemail_user_id))
     return {"tasks": results}
 
 
@@ -195,8 +390,9 @@ async def get_history_task(
     task_id: str,
     limit: int = Query(default=0, ge=0, description="return message count limit, 0=all"),
     offset: int = Query(default=0, ge=0, description="messages to skip"),
+    x_uniemail_user_id: str | None = Header(default=None),
 ):
-    task = history.get(task_id)
+    task = history.get(task_id, _owner_id(x_uniemail_user_id))
     if task is None:
         return {"error": "task not found"}
 
@@ -221,24 +417,34 @@ async def get_history_task(
     return {"task": task, "messages": normalized, "total": total, "limit": limit, "offset": offset}
 
 
+@app.get("/api/history/{task_id}/summary")
+async def get_task_summary(task_id: str, x_uniemail_user_id: str | None = Header(default=None)):
+    task = history.get(task_id, _owner_id(x_uniemail_user_id))
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    summary = _summarize_task_outputs(task_id)
+    summary["status"] = task.get("status", "")
+    return summary
+
+
 @app.patch("/api/history/{task_id}/rename")
-async def rename_task(task_id: str, req: RenameRequest):
-    task = history.rename_task(task_id, req.title)
+async def rename_task(task_id: str, req: RenameRequest, x_uniemail_user_id: str | None = Header(default=None)):
+    task = history.rename_task(task_id, req.title, _owner_id(x_uniemail_user_id))
     if task is None:
         return {"error": "task not found"}
     return {"ok": True, "task": task}
 
 
 @app.patch("/api/history/{task_id}/pin")
-async def pin_task(task_id: str):
-    task = history.toggle_pin(task_id)
+async def pin_task(task_id: str, x_uniemail_user_id: str | None = Header(default=None)):
+    task = history.toggle_pin(task_id, _owner_id(x_uniemail_user_id))
     if task is None:
         return {"error": "task not found"}
     return {"ok": True, "pinned": task.get("pinned", False)}
 
 
 @app.delete("/api/history/{task_id}")
-async def delete_task(task_id: str):
+async def delete_task(task_id: str, x_uniemail_user_id: str | None = Header(default=None)):
     # 如果有正在运行的 Agent，先终止
     if hasattr(agent, "stop_task"):
         agent.stop_task(task_id)
@@ -248,7 +454,7 @@ async def delete_task(task_id: str):
             coro_task.cancel()
     _running_agent_info.pop(task_id, None)
     cleanup_task_dir(task_id)
-    ok = history.delete_task(task_id)
+    ok = history.delete_task(task_id, _owner_id(x_uniemail_user_id))
     return {"ok": ok}
 
 
@@ -289,13 +495,18 @@ async def terminate_agent(req: TerminateRequest):
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def create_task(req: ChatRequest):
+async def create_task(req: ChatRequest, x_uniemail_user_id: str | None = Header(default=None)):
     task_id = req.task_id or str(uuid.uuid4())
     user_content = req.message or "new task"
+    owner_id = _owner_id(x_uniemail_user_id)
 
-    existing = history.get(task_id)
+    existing = history.get(task_id, owner_id)
+    if existing is None and owner_id:
+        existing_for_other_owner = history.get(task_id)
+        if existing_for_other_owner is not None and existing_for_other_owner.get("owner_id") != owner_id:
+            task_id = str(uuid.uuid4())
     if existing is None:
-        history.create_task(task_id, user_content)
+        history.create_task(task_id, user_content, owner_id)
     else:
         history.update_status(task_id, "running")
 
@@ -320,6 +531,170 @@ async def classify_task(req: ClassifyRequest):
         "departments": result.target_departments,
         "reason": result.reason,
     }
+
+
+async def _llm_reply(system_prompt: str, user_message: str, max_tokens: int = 700, temperature: float = 0.4) -> str:
+    api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return ""
+    base_url = (
+        os.environ.get("DEEPSEEK_API_BASE")
+        or os.environ.get("OPENAI_BASE_URL")
+        or os.environ.get("DEEPSEEK_BASE_URL")
+        or "https://api.deepseek.com/v1"
+    )
+    model = os.environ.get("DEEPSEEK_MODEL") or os.environ.get("OPENAI_MODEL") or "deepseek-chat"
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    resp = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    return resp.choices[0].message.content or ""
+
+
+@app.post("/api/assistant/kb")
+async def knowledge_agent_v2(req: AssistantRequest):
+    message = (req.message or "").strip()
+    university = (req.university or "").strip()
+    if not message:
+        return {"answer": "请输入要查询的高校、学院、教师姓名或邮箱。", "sources": []}
+
+    table_results, table_stats = _search_tables_for_knowledge(message, university, limit=30)
+    data_results = table_results or await search_data(message, university)
+    sources: list[dict] = []
+    context_lines: list[str] = []
+    for row in data_results[:20]:
+        item = {
+            "university": row.get("university", ""),
+            "name": row.get("name", ""),
+            "email": row.get("email", ""),
+            "department": row.get("department", ""),
+            "title": row.get("title", ""),
+            "homepage": row.get("homepage", ""),
+            "filename": row.get("filename", ""),
+        }
+        sources.append(item)
+        context_lines.append(
+            f"{item.get('university','')} | {item.get('name','')} | {item.get('email','')} | "
+            f"{item.get('title','')} | {item.get('department','')} | {item.get('homepage','')}"
+        )
+    if sources and not university:
+        university = sources[0].get("university", "")
+
+    if context_lines:
+        stats = DataMemory.get_instance().get_stats(university) if university else {}
+        stats = {**(stats or {}), **table_stats}
+        prompt = (
+            "你是江苏省人工智能学会运营人员使用的高校教师邮箱知识库 Agent。"
+            "只能基于提供的数据回答，直接给结论；数据不足时明确说明。"
+            "回答使用 Markdown，适合会前核验、邮件名单检查和高校信息查阅。"
+            f"\n\n高校：{university or '未指定'}\n统计：{json.dumps(stats, ensure_ascii=False)}"
+            f"\n\n检索数据：\n" + "\n".join(context_lines)
+        )
+        try:
+            answer = await _llm_reply(prompt, message, max_tokens=800, temperature=0.2)
+        except Exception as exc:
+            logger.warning("knowledge agent llm failed: %s", exc)
+            answer = ""
+        if not answer:
+            count = len(sources)
+            valid = sum(1 for item in sources if item.get("email"))
+            sample = "；".join(f"{i.get('name','')} {i.get('email','')}".strip() for i in sources[:5])
+            answer = f"已在{university or '高校库'}中找到 {count} 条相关记录，其中 {valid} 条带邮箱。示例：{sample}"
+        return {"answer": answer, "sources": sources}
+
+    return {"answer": "高校库里暂未检索到匹配记录。建议先在主任务中抓取该高校，或在高校库选择具体学校后再查询。", "sources": []}
+
+
+@app.post("/api/assistant/kb-legacy")
+async def knowledge_agent(req: AssistantRequest):
+    message = (req.message or "").strip()
+    university = (req.university or "").strip()
+    if not message:
+        return {"answer": "请输入要查询的高校、学院、教师姓名或邮箱。", "sources": []}
+
+    data_results = await search_data(message, university)
+    sources: list[dict] = []
+    context_lines: list[str] = []
+    if data_results:
+        university = university or data_results[0].get("university", "")
+        for row in data_results[:20]:
+            sources.append({
+                "name": row.get("name", ""),
+                "email": row.get("email", ""),
+                "department": row.get("department", ""),
+                "title": row.get("title", ""),
+            })
+            context_lines.append(
+                f"{row.get('name','')} | {row.get('email','')} | {row.get('title','')} | {row.get('department','')}"
+            )
+    elif university:
+        try:
+            recs = get_university_records(university).get("records", [])
+            best = next((r for r in recs if r.get("previewable")), None)
+            if best:
+                path = resolve_table_path(best.get("task_id", ""), best.get("filename", ""))
+                parsed = parse_table_file(path, limit=12) if path else {}
+                for row in parsed.get("rows", [])[:12]:
+                    item = {
+                        "name": _table_value(row, "姓名", "name"),
+                        "email": _table_value(row, "邮箱", "电子邮箱", "email", "mail"),
+                        "department": _table_value(row, "学院", "院系", "department", "dept"),
+                        "title": _table_value(row, "职称", "title", "position"),
+                    }
+                    sources.append(item)
+                    context_lines.append(f"{item['name']} | {item['email']} | {item['title']} | {item['department']}")
+        except Exception:
+            pass
+
+    if context_lines:
+        stats = DataMemory.get_instance().get_stats(university) if university else {}
+        prompt = (
+            "你是江苏省人工智能学会运营人员使用的高校教师邮箱知识库 Agent。"
+            "只基于提供的数据回答，直接给结论；数据不足时明确说明。"
+            "适合用于会前核验、邮件名单检查和高校信息查阅。"
+            f"\n\n高校：{university or '未指定'}\n统计：{json.dumps(stats, ensure_ascii=False)}"
+            f"\n\n检索数据：\n" + "\n".join(context_lines)
+        )
+        try:
+            answer = await _llm_reply(prompt, message, max_tokens=700, temperature=0.2)
+        except Exception as exc:
+            logger.warning("knowledge agent llm failed: %s", exc)
+            answer = ""
+        if not answer:
+            count = len(sources)
+            valid = sum(1 for item in sources if item.get("email"))
+            sample = "；".join(f"{i.get('name','')} {i.get('email','')}".strip() for i in sources[:5])
+            answer = f"已在{university or '高校库'}中找到 {count} 条相关记录，其中 {valid} 条带邮箱。示例：{sample}"
+        return {"answer": answer, "sources": sources}
+
+    return {"answer": "高校库里暂未检索到匹配记录。建议先在主任务中抓取该高校，或在高校库选择具体学校后再查询。", "sources": []}
+
+
+@app.post("/api/assistant/chat")
+async def general_chat_agent(req: AssistantRequest):
+    message = (req.message or "").strip()
+    if not message:
+        return {"answer": "请输入问题。"}
+    system_prompt = (
+        "你是 UniEmail 的普通对话 Agent，面向江苏省人工智能学会运营人员。"
+        "回答要像 DeepSeek 网页版一样清晰、直接、可执行；如涉及高校邮箱数据，请提醒用户可切换知识库 Agent 查询本地高校库。"
+    )
+    try:
+        answer = await _llm_reply(system_prompt, message, max_tokens=900, temperature=0.6)
+    except Exception as exc:
+        logger.warning("chat agent failed: %s", exc)
+        answer = ""
+    if not answer:
+        answer = "我可以帮你梳理运营文案、通知邮件、活动方案和数据核验思路。当前未配置可用的大模型 Key，因此开放问答暂时只能给本地提示；需要完整对话能力请在设置中配置 DeepSeek 或 OpenAI Key。"
+    return {"answer": answer}
 
 
 MIME_MAP = {
@@ -356,14 +731,18 @@ def _safe_resolve(base: Path, *parts: str) -> Path | None:
 
 @app.get("/api/download/{task_id}/{filename:path}")
 async def download_file_tasked(task_id: str, filename: str):
-    if ".." in filename:
+    filename_parts = [p for p in filename.split("/") if p]
+    if (
+        not filename_parts
+        or any(part in (".", "..") or "\\" in part or ".." in part for part in filename_parts)
+    ):
         raise HTTPException(status_code=400, detail="invalid filename")
-    safe_tid = task_id.replace("..", "_")
+    safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
     base = _BASE_OUTPUT_DIR.resolve()
-    filepath = _safe_resolve(base, safe_tid, filename)
+    filepath = _safe_resolve(base, safe_tid, *filename_parts)
     if filepath is None or not filepath.exists():
         # 后备方案：如果任务专属目录下未找到（可能是自定义脚本写到了根目录），尝试在 outputs 根目录下查找该文件
-        fallback = _safe_resolve(base, filename)
+        fallback = _safe_resolve(base, filename_parts[-1])
         if fallback and fallback.exists():
             filepath = fallback
         else:
@@ -371,7 +750,7 @@ async def download_file_tasked(task_id: str, filename: str):
     ext = filepath.suffix.lower()
     return FileResponse(
         path=str(filepath),
-        filename=filename,
+        filename=filename_parts[-1],
         media_type=MIME_MAP.get(ext, "application/octet-stream"),
     )
 
@@ -1168,8 +1547,290 @@ def _detect_file_request(message: str) -> list[dict]:
     return results
 
 
+def _requested_export_formats(message: str) -> list[str]:
+    text = (message or "").lower()
+    aliases = {
+        "csv": ["csv"],
+        "xlsx": ["xlsx", "excel"],
+        "html": ["html", "网页"],
+        "pdf": ["pdf"],
+        "docx": ["docx", "word"],
+        "md": ["md", "markdown"],
+    }
+    formats = [fmt for fmt, keys in aliases.items() if any(k in text for k in keys)]
+    if not formats and any(k in message for k in ("导出", "下载", "文件", "结果")):
+        formats = ["csv", "xlsx"]
+    return formats
+
+
+def _row_to_export_record(row: dict) -> dict:
+    def pick(*keys: str) -> str:
+        for key in keys:
+            value = row.get(key)
+            if value:
+                return str(value).strip()
+        for key, value in row.items():
+            low = str(key).lower()
+            if any(token in low for token in keys) and value:
+                return str(value).strip()
+        return ""
+
+    return {
+        "name": pick("姓名", "name"),
+        "email": pick("邮箱", "电子邮箱", "email", "mail"),
+        "department": pick("学院", "院系", "department", "dept"),
+        "title": pick("职称", "title", "position"),
+        "url": pick("主页链接", "主页", "链接", "url", "homepage"),
+    }
+
+
+def _export_current_task_data(task_id: str, message: str, university_name: str = "") -> list[dict]:
+    formats = _requested_export_formats(message)
+    if not formats:
+        return []
+
+    safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+    output_dir = _BASE_OUTPUT_DIR / safe_tid
+    if not output_dir.exists():
+        return []
+
+    table_files = [
+        p for p in list(output_dir.glob("*.csv")) + list(output_dir.glob("*.xlsx"))
+        if p.is_file() and p.stat().st_size > 100
+    ]
+    if not table_files:
+        return []
+
+    source = max(table_files, key=lambda p: p.stat().st_size)
+    try:
+        from agent.universities import parse_table_file
+        from agent.exporter import export_all
+
+        parsed = parse_table_file(source, limit=0)
+        rows = parsed.get("rows", [])
+        data = [_row_to_export_record(row) for row in rows]
+        data = [row for row in data if row.get("name") or row.get("email")]
+        if not data:
+            return []
+
+        university = university_name or source.stem.split("_")[0] or "导出数据"
+        exported = export_all(data, university, task_id, formats=formats)
+    except Exception as exc:
+        logger.warning("export current task data failed: %s", exc)
+        return []
+
+    downloads = []
+    for fmt, filename in exported.items():
+        downloads.append({
+            "filename": filename,
+            "url": f"/api/download/{quote(safe_tid)}/{quote(filename)}",
+            "message": f"{fmt.upper()} 文件已生成",
+        })
+    return downloads
+
+
+def _task_output_dir(task_id: str) -> Path:
+    safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+    return _BASE_OUTPUT_DIR / safe_tid
+
+
+def _download_payload_for_path(path: Path, task_id: str = "") -> dict:
+    path = Path(path)
+    safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+    return {
+        "filename": path.name,
+        "size": path.stat().st_size if path.exists() else 0,
+        "url": f"/api/download/{quote(safe_tid)}/{quote(path.name)}" if safe_tid else f"/api/download/{quote(path.name)}",
+    }
+
+
+def _table_value(row: dict, *keys: str) -> str:
+    for key in keys:
+        if key in row and row.get(key):
+            return str(row.get(key, "")).strip()
+    lowered = [k.lower() for k in keys]
+    for key, value in row.items():
+        low = str(key).lower()
+        if any(k in low for k in lowered) and value:
+            return str(value).strip()
+    return ""
+
+
+def _row_text(row: dict) -> str:
+    return " ".join(str(v or "") for k, v in row.items() if not str(k).startswith("_")).strip()
+
+
+def _teacher_row(row: dict, university: str = "", task_id: str = "", filename: str = "") -> dict:
+    return {
+        "university": university,
+        "name": _table_value(row, "姓名", "name"),
+        "email": _table_value(row, "邮箱", "电子邮箱", "email", "mail"),
+        "department": _table_value(row, "学院", "院系", "department", "dept"),
+        "title": _table_value(row, "职称", "title", "position"),
+        "homepage": _table_value(row, "主页链接", "个人主页", "homepage", "url", "link"),
+        "task_id": task_id,
+        "filename": filename,
+        "text": _row_text(row),
+    }
+
+
+def _score_teacher_row(item: dict, words: list[str], query: str) -> float:
+    text = " ".join(str(item.get(k, "")) for k in ("university", "name", "email", "department", "title", "homepage", "text")).lower()
+    score = 0.0
+    q = query.lower()
+    if q and q in text:
+        score += 6
+    for word in words:
+        if not word:
+            continue
+        if word in str(item.get("name", "")).lower():
+            score += 5
+        elif word in str(item.get("email", "")).lower():
+            score += 4
+        elif word in str(item.get("department", "")).lower():
+            score += 3
+        elif word in str(item.get("university", "")).lower():
+            score += 2
+        elif word in text:
+            score += 1
+    if item.get("email"):
+        score += 0.2
+    return score
+
+
+def _search_tables_for_knowledge(query: str, university: str = "", limit: int = 30) -> tuple[list[dict], dict]:
+    """Search harvested CSV/XLSX tables directly.
+
+    This is the reliable RAG backing store for the knowledge agent: it works even
+    before embeddings are generated and includes XLSX rows and rows without email.
+    """
+    query = (query or "").strip()
+    words = [w.lower() for w in re.findall(r"[\w\u4e00-\u9fff]+", query.lower()) if len(w.strip()) > 0]
+    records = get_university_records(university).get("records", []) if university else []
+    if not records:
+        try:
+            from agent.universities import _candidate_output_files
+            paths = [p for p in _candidate_output_files() if p.suffix.lower() in (".csv", ".xlsx")]
+            records = [
+                {"filename": p.name, "task_id": p.parent.name if p.parent != _BASE_OUTPUT_DIR else "", "path": str(p)}
+                for p in paths
+            ]
+        except Exception:
+            records = []
+
+    scored: list[tuple[float, dict]] = []
+    seen: set[tuple[str, str, str]] = set()
+    scanned_files = 0
+    scanned_rows = 0
+    for rec in records:
+        filename = rec.get("filename", "")
+        if not filename.lower().endswith((".csv", ".xlsx")):
+            continue
+        path = Path(rec.get("path", "")) if rec.get("path") else resolve_table_path(rec.get("task_id", ""), filename)
+        if not path or not path.exists():
+            continue
+        try:
+            parsed = parse_table_file(path, limit=0)
+        except Exception:
+            continue
+        scanned_files += 1
+        rec_university = university or filename.split("_")[0].split("-")[0]
+        for row in parsed.get("rows", []) or []:
+            scanned_rows += 1
+            item = _teacher_row(row, rec_university, rec.get("task_id", ""), filename)
+            key = (item.get("university", ""), item.get("name", ""), item.get("email", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            score = _score_teacher_row(item, words, query)
+            if score > 0 or not words:
+                scored.append((score, item))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    rows = [item for score, item in scored[:limit] if score > 0 or not words]
+    stats = {
+        "scanned_files": scanned_files,
+        "scanned_rows": scanned_rows,
+        "matched": len(rows),
+        "with_email": sum(1 for item in rows if item.get("email")),
+    }
+    return rows, stats
+
+
+def _summarize_task_outputs(task_id: str) -> dict:
+    output_dir = _task_output_dir(task_id)
+    empty = {
+        "task_id": task_id,
+        "status": "",
+        "files": [],
+        "total_teachers": 0,
+        "valid_emails": 0,
+        "coverage": 0,
+        "colleges": [],
+        "preview_rows": [],
+    }
+    if not output_dir.exists():
+        return empty
+
+    files = [
+        _download_payload_for_path(p, task_id)
+        for p in sorted(output_dir.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True)
+        if p.is_file() and p.suffix.lower() in (".csv", ".xlsx")
+    ]
+    table_files = [p for p in output_dir.iterdir() if p.is_file() and p.suffix.lower() in (".csv", ".xlsx")]
+    best: dict | None = None
+    best_path: Path | None = None
+    for path in table_files:
+        try:
+            parsed = parse_table_file(path, limit=0)
+        except Exception:
+            continue
+        score = (int(parsed.get("raw_total", parsed.get("total", 0)) or 0), int(parsed.get("valid_email_count", 0) or 0), path.stat().st_size)
+        if best is None or score > best["_score"]:
+            best = {**parsed, "_score": score}
+            best_path = path
+
+    if best is None:
+        return {**empty, "files": files}
+
+    total = int(best.get("raw_total", best.get("total", 0)) or 0)
+    valid = int(best.get("valid_email_count", 0) or 0)
+    dept_counts: dict[str, int] = {}
+    preview_rows = []
+    for row in (best.get("rows", []) or []):
+        name = _table_value(row, "姓名", "name")
+        email = _table_value(row, "邮箱", "电子邮箱", "email", "mail")
+        department = _table_value(row, "学院", "院系", "department", "dept")
+        if department:
+            dept_counts[department] = dept_counts.get(department, 0) + 1
+        if len(preview_rows) < 10:
+            preview_rows.append({"name": name, "email": email, "department": department})
+
+    return {
+        "task_id": task_id,
+        "status": "",
+        "files": files,
+        "best_file": _download_payload_for_path(best_path, task_id) if best_path else None,
+        "total_teachers": total,
+        "valid_emails": valid,
+        "coverage": round((valid / total) * 100) if total else 0,
+        "colleges": [{"name": name, "count": count} for name, count in sorted(dept_counts.items(), key=lambda item: item[1], reverse=True)],
+        "preview_rows": preview_rows[:5],
+    }
+
+
+def _operator_final_message(university: str, stats: dict, downloads: list[dict]) -> str:
+    teachers = int(stats.get("total_teachers", 0) or 0)
+    emails = int(stats.get("valid_emails", 0) or 0)
+    files_count = len(downloads) or len(stats.get("files", []) or [])
+    uni = university or "当前高校"
+    return f"完成：{uni} 共 {teachers} 位教师，{emails} 个有效邮箱。已同步至高校库，可在高校库核验结果；本次生成 {files_count} 个下载文件。"
+
+
 def _final_summary(message: str, downloads: list[dict]) -> str:
     text = (message or "").strip()
+    text = re.sub(r"\[(FILES|REFLECTION)\].*?\[/\1\]", "", text, flags=re.I | re.S).strip()
+    text = re.sub(r"```.*?```", "", text, flags=re.S).strip()
     if not text:
         text = f"任务已完成，共生成 {len(downloads)} 个结果文件。" if downloads else "任务已完成。"
     if len(text) > 600:
@@ -1526,7 +2187,10 @@ async def _generate_progress_summary(recent_logs: list[str]) -> str:
         try:
             from openai import AsyncOpenAI
             if _os.environ.get("DEEPSEEK_API_KEY"):
-                client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+                client = AsyncOpenAI(
+                    api_key=api_key,
+                    base_url=_os.environ.get("DEEPSEEK_API_BASE") or _os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1",
+                )
                 model = "deepseek-chat"
             else:
                 base_url = _os.environ.get("OPENAI_BASE_URL") or None
@@ -1597,15 +2261,20 @@ async def _progress_pump_llm(ws: WebSocket, stop_event: asyncio.Event, log_colle
 
 
 @app.websocket("/ws/{task_id}")
-async def agent_logs(ws: WebSocket, task_id: str):
+async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
     await ws.accept()
     logger.info(f"WebSocket connected: {task_id}")
+    
+    # 关联当前异步 Task 到对应的 task_id，用于 Token 审计计费
+    from agent.billing import current_task_id
+    current_task_id.set(task_id)
 
-    task_data = history.get(task_id)
+    owner_id = _owner_id(user_id)
+    task_data = history.get(task_id, owner_id)
     if task_data is None:
         for _ in range(50):
             await asyncio.sleep(0.1)
-            task_data = history.get(task_id)
+            task_data = history.get(task_id, owner_id)
             if task_data is not None:
                 logger.info(f"task {task_id} created after wait ({_*0.1:.1f}s)")
                 break
@@ -1788,6 +2457,39 @@ async def agent_logs(ws: WebSocket, task_id: str):
             f"uni={intent_result.university_name} reason={intent_result.reason}"
         )
 
+        direct_exports = _export_current_task_data(task_id, user_message, intent_result.university_name)
+        if direct_exports:
+            ts = datetime.now().strftime("%H:%M:%S")
+            for item in direct_exports:
+                msg_seq += 1
+                log = {
+                    "type": "download",
+                    "message": item["message"],
+                    "filename": item["filename"],
+                    "url": item["url"],
+                    "timestamp": ts,
+                }
+                history.add_message(task_id, {
+                    "id": f"download-{task_id[:8]}-{ts}-{msg_seq}",
+                    "role": "download",
+                    "content": log["message"],
+                    "timestamp": ts,
+                    "filename": log["filename"],
+                    "url": log["url"],
+                })
+                await ws.send_text(json.dumps(log, ensure_ascii=False))
+            done_text = f"已生成 {len(direct_exports)} 个导出文件"
+            history.add_message(task_id, {
+                "id": f"done-{task_id[:8]}-{ts}",
+                "role": "agent",
+                "content": done_text,
+                "timestamp": ts,
+            })
+            await ws.send_text(json.dumps({"type": "done", "message": done_text, "timestamp": ts}, ensure_ascii=False))
+            history.update_status(task_id, "completed")
+            await ws.close()
+            return
+
         # ── 已有产出文件 + 已有历史消息 → 跳过执行，回放历史（仅限非增量任务） ──
         output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
         existing_files = list(output_dir.glob("*.csv")) + list(output_dir.glob("*.xlsx"))
@@ -1823,7 +2525,7 @@ async def agent_logs(ws: WebSocket, task_id: str):
             # 简单问答：检查是否有已索引的爬取数据可回答
             from openai import AsyncOpenAI
             api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
-            base_url = os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+            base_url = os.environ.get("DEEPSEEK_API_BASE") or os.environ.get("DEEPSEEK_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://api.deepseek.com/v1"
             model = "deepseek-chat"
 
             # 尝试从 DataMemory 检索相关数据
@@ -1846,34 +2548,46 @@ async def agent_logs(ws: WebSocket, task_id: str):
 
 根据以上数据回答用户的问题。如果数据不足以回答，如实说。"""
 
-                try:
-                    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-                    resp = await client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_message}
-                        ],
-                        max_tokens=800, temperature=0.3,
+                if api_key:
+                    try:
+                        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+                        resp = await client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_message}
+                            ],
+                            max_tokens=800, temperature=0.3,
+                        )
+                        reply = resp.choices[0].message.content or ""
+                    except Exception as e:
+                        reply = f"查询数据时出错: {str(e)[:100]}"
+                else:
+                    total = stats.get("total", len(data_results))
+                    valid = stats.get("valid_email_count", sum(1 for r in data_results if r.get("email")))
+                    sample = "；".join(
+                        f"{r.get('name','')} {r.get('email','')}".strip()
+                        for r in data_results[:5]
                     )
-                    reply = resp.choices[0].message.content or ""
-                except Exception as e:
-                    reply = f"查询数据时出错: {str(e)[:100]}"
+                    reply = f"已找到 {univ} 相关教师数据 {total} 条，其中有效邮箱约 {valid} 条。示例：{sample}"
             else:
                 # 无数据 → 通用回答
-                try:
-                    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-                    resp = await client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": "你是 UniEmail Agent，一个高校教师邮箱爬取助手。回答简洁直接。"},
-                            {"role": "user", "content": user_message}
-                        ],
-                        max_tokens=500, temperature=0.7,
-                    )
-                    reply = resp.choices[0].message.content or ""
-                except Exception as e:
-                    reply = f"抱歉，我暂时无法回答。错误: {str(e)[:100]}"
+                if api_key:
+                    try:
+                        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+                        resp = await client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "system", "content": "你是 UniEmail Agent，一个高校教师邮箱爬取助手。回答简洁直接。"},
+                                {"role": "user", "content": user_message}
+                            ],
+                            max_tokens=500, temperature=0.7,
+                        )
+                        reply = resp.choices[0].message.content or ""
+                    except Exception as e:
+                        reply = f"抱歉，我暂时无法回答。错误: {str(e)[:100]}"
+                else:
+                    reply = "我可以帮你抓取高校教师邮箱、查看已有结果、统计邮箱覆盖率，或把结果导出为 CSV/XLSX/HTML/PDF/DOCX/MD。当前没有可用于开放式问答的 API Key，所以请优先输入具体抓取或数据查询任务。"
 
             ts = datetime.now().strftime("%H:%M:%S")
             await ws.send_text(json.dumps({"type": "text", "message": reply, "timestamp": ts}))
@@ -2312,6 +3026,39 @@ async def agent_logs(ws: WebSocket, task_id: str):
             # ── Phase 1: 完成时推送结构化 summary ──
             if is_crawl:
                 try:
+                    _export_current_task_data(task_id, user_message, intent_result.university_name)
+                except Exception as e:
+                    logger.warning("completion export fallback failed: %s", e)
+            task_stats = _summarize_task_outputs(task_id)
+            if is_crawl:
+                existing_download_names = {d.get("filename") for d in downloads if d.get("filename")}
+                for payload in task_stats.get("files", []):
+                    if not payload.get("filename") or payload["filename"] in existing_download_names:
+                        continue
+                    msg_seq += 1
+                    file_msg = {
+                        "type": "download",
+                        "message": f"下载 {payload['filename']}",
+                        "filename": payload["filename"],
+                        "url": payload["url"],
+                        "size": payload.get("size", 0),
+                        "timestamp": ts,
+                    }
+                    downloads.append(file_msg)
+                    existing_download_names.add(payload["filename"])
+                    history.add_message(task_id, {
+                        "id": f"download-{task_id[:8]}-{ts}-{msg_seq}",
+                        "role": "download",
+                        "content": file_msg["message"],
+                        "filename": file_msg["filename"],
+                        "url": file_msg["url"],
+                        "timestamp": ts,
+                    })
+                    await ws.send_text(json.dumps(file_msg, ensure_ascii=False))
+                summary = _operator_final_message(intent_result.university_name, task_stats, downloads)
+
+            if is_crawl:
+                try:
                     task_start = _task_start_times.get(task_id, time.time())
                     duration = _compute_duration(task_start)
                     # 统计各个 CSV 行数
@@ -2334,12 +3081,16 @@ async def agent_logs(ws: WebSocket, task_id: str):
                     summary_data = {
                         "type": "summary",
                         "university": uni_display,
-                        "total_teachers": total_rows,
-                        "total_emails": total_emails,
+                        "total_teachers": task_stats.get("total_teachers", 0),
+                        "total_emails": task_stats.get("valid_emails", 0),
                         "departments_covered": 0,  # 由前端从前面的 stats 消息累计
                         "total_departments": 0,
                         "duration": duration,
-                        "files": [d.get("filename", "") for d in downloads],
+                        "files": [
+                            {"filename": d.get("filename", ""), "url": d.get("url", ""), "size": d.get("size", 0)}
+                            for d in downloads
+                            if d.get("filename")
+                        ],
                         "timestamp": ts,
                     }
                     await ws.send_text(json.dumps(summary_data, ensure_ascii=False))
@@ -2463,3 +3214,27 @@ async def agent_logs(ws: WebSocket, task_id: str):
         _running_agent_tasks.pop(task_id, None)
         _running_agent_info.pop(task_id, None)
         # 正常完成不需要 stop_task，避免干扰其他任务
+
+
+# ── 静态页面路由挂载（仅在打包运行或 static 目录存在时生效） ──
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    class SPAStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            try:
+                return await super().get_response(path, scope)
+            except (StarletteHTTPException, HTTPException) as exc:
+                if exc.status_code == 404:
+                    # 返回 index.html 作为 SPA 的路由兜底
+                    index_path = Path(self.directory) / "index.html"
+                    if index_path.exists():
+                        return FileResponse(index_path)
+                raise exc
+
+    app.mount("/", SPAStaticFiles(directory=str(static_dir), html=True), name="static")
+    logger.info("成功挂载前端静态页面服务 (SPA)。")
+else:
+    logger.warning("未检测到 static 静态资产目录，跳过静态页面挂载（开发调试环境可忽略）。")

@@ -148,7 +148,7 @@ async def _llm_classify(
     from openai import AsyncOpenAI
 
     if os.environ.get("DEEPSEEK_API_KEY"):
-        base_url = "https://api.deepseek.com/v1"
+        base_url = os.environ.get("DEEPSEEK_API_BASE") or os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1"
         model = "deepseek-chat"
     else:
         base_url = os.environ.get("OPENAI_BASE_URL") or None

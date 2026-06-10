@@ -55,6 +55,10 @@ export function UniversityWorkspace() {
   const [records, setRecords] = useState<UniversityRecord[]>([]);
   const [recordIndex, setRecordIndex] = useState(0);
   const selectedRecord = records[recordIndex] || null;
+  const [showAllFiles, setShowAllFiles] = useState(false);
+  const [fileQuery, setFileQuery] = useState("");
+  const [fileType, setFileType] = useState("");
+  const [fileDate, setFileDate] = useState("");
 
   // 表格过滤/分页状态
   const [tableQuery, setTableQuery] = useState("");
@@ -192,6 +196,10 @@ export function UniversityWorkspace() {
       setTableQuery("");
       setTableDept("");
       setValidOnly(false);
+      setShowAllFiles(false);
+      setFileQuery("");
+      setFileType("");
+      setFileDate("");
       setPage(1);
     }).catch(() => {});
   }, [selected]);
@@ -241,6 +249,17 @@ export function UniversityWorkspace() {
     if (onlyWithData) list = list.filter((u) => u.has_data);
     return list;
   }, [groups, city, onlyWithData]);
+
+  const filteredRecords = useMemo(() => {
+    return records.filter((rec) => {
+      if (fileQuery && !rec.filename.toLowerCase().includes(fileQuery.toLowerCase())) return false;
+      if (fileType && rec.ext !== fileType) return false;
+      if (fileDate && !rec.updated_at.startsWith(fileDate)) return false;
+      return true;
+    });
+  }, [records, fileQuery, fileType, fileDate]);
+
+  const fileTypes = useMemo(() => Array.from(new Set(records.map((r) => r.ext).filter(Boolean))), [records]);
 
   // ── 导出 ──
   const handleExport = async (format: string) => {
@@ -498,8 +517,8 @@ export function UniversityWorkspace() {
                     {selectedRecord ? (
                       <div className="flex flex-col flex-1 min-h-0">
                         {/* 版本 Tab 选择器 */}
-                        {records.length > 0 && (
-                          <div className="flex items-center gap-2 mb-2">
+                        {records.length > 0 && false && (
+                          <div className="mb-2 rounded-lg border bg-primary/[0.03] p-2.5">
                             <span className="text-xs text-muted-foreground shrink-0">版本：</span>
                             <div className="flex gap-1 overflow-x-auto">
                               {records.map((rec, i) => (
@@ -519,6 +538,52 @@ export function UniversityWorkspace() {
                           </div>
                         )}
                         {/* 控制栏 */}
+                        {records.length > 0 && (
+                          <div className="mb-2 rounded-lg border bg-primary/[0.03] p-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium text-foreground">当前展示最完整表格</div>
+                                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                  {selectedRecord?.filename} · {selectedRecord?.row_count || 0} 行 · {selectedRecord?.valid_email_count || 0} 个有效邮箱
+                                </div>
+                              </div>
+                              <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setShowAllFiles((v) => !v)}>
+                                {showAllFiles ? "收起全部文件" : `查看全部文件（${records.length}）`}
+                              </Button>
+                            </div>
+                            {showAllFiles && (
+                              <div className="mt-3 space-y-2 border-t pt-3">
+                                <div className="grid grid-cols-[1fr_120px_132px] gap-2">
+                                  <Input value={fileQuery} onChange={(e) => setFileQuery(e.target.value)} placeholder="搜索文件名" className="h-8 text-xs bg-background" />
+                                  <select className="h-8 rounded-md border bg-background px-2 text-xs" value={fileType} onChange={(e) => setFileType(e.target.value)}>
+                                    <option value="">全部格式</option>
+                                    {fileTypes.map((ext) => <option key={ext} value={ext}>{ext.toUpperCase()}</option>)}
+                                  </select>
+                                  <Input type="date" value={fileDate} onChange={(e) => setFileDate(e.target.value)} className="h-8 text-xs bg-background" />
+                                </div>
+                                <div className="max-h-40 overflow-auto rounded-md border bg-background">
+                                  {filteredRecords.length === 0 ? (
+                                    <div className="px-3 py-5 text-center text-xs text-muted-foreground">没有匹配文件</div>
+                                  ) : filteredRecords.map((rec) => {
+                                    const idx = records.findIndex((r) => r.task_id === rec.task_id && r.filename === rec.filename);
+                                    return (
+                                      <button
+                                        key={rec.task_id + rec.filename}
+                                        onClick={() => { if (idx >= 0 && rec.previewable) { setRecordIndex(idx); setPage(1); } }}
+                                        className={`flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-muted/40 ${idx === recordIndex ? "bg-primary/5 text-primary" : ""}`}
+                                      >
+                                        <span className="min-w-0 flex-1 truncate">{rec.is_best ? "推荐 · " : ""}{rec.filename}</span>
+                                        <span className="shrink-0 text-muted-foreground">{rec.ext.toUpperCase()}</span>
+                                        <span className="shrink-0 text-muted-foreground">{rec.updated_at.slice(0, 10)}</span>
+                                        <span className="shrink-0 text-muted-foreground">{rec.previewable ? `${rec.row_count || 0} 行` : "文件"}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <div className="mb-3 space-y-2 rounded-lg border bg-muted/30 p-2.5 shrink-0">
                           <Input value={tableQuery} onChange={(e) => handleQueryChange(e.target.value)} placeholder="搜索姓名/邮箱" className="h-8 text-xs bg-background" />
                           <div className="flex items-center justify-between gap-2">

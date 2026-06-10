@@ -1,11 +1,27 @@
 function getBackendUrl(): string {
+  if (typeof window !== "undefined") {
+    const localUrl = localStorage.getItem("backendUrl");
+    if (localUrl) return localUrl;
+    return window.location.origin;
+  }
   if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL) {
     return process.env.NEXT_PUBLIC_BACKEND_URL;
   }
-  return "http://localhost:8000";
+  return "http://localhost:8070";
 }
 
 const BACKEND_URL = getBackendUrl();
+
+function getUserId(): string {
+  if (typeof window === "undefined") return "";
+  const key = "uniemailUserId";
+  let value = localStorage.getItem(key);
+  if (!value) {
+    value = crypto.randomUUID();
+    localStorage.setItem(key, value);
+  }
+  return value;
+}
 
 /** Generic request helper */
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -14,6 +30,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   if (!(options?.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
+  const userId = getUserId();
+  if (userId) headers["X-UniEmail-User-Id"] = userId;
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -45,7 +63,7 @@ interface UniversityListResponse {
 interface UniversityRecordsResponse {
   name: string;
   summary: Record<string, number>;
-  records: Array<{ task_id: string; filename: string; ext: string; url: string; size: number; updated_at: string; row_count: number; valid_email_count: number; previewable: boolean }>;
+  records: Array<{ task_id: string; filename: string; ext: string; url: string; size: number; updated_at: string; row_count: number; valid_email_count: number; previewable: boolean; is_best?: boolean }>;
 }
 
 interface UniversityTableResponse {
@@ -83,7 +101,7 @@ export const api = {
   deleteTask: (taskId: string) => request<void>(`${BACKEND_URL}/api/history/${taskId}`, { method: "DELETE" }),
   downloadUrl,
   getBackendUrl: () => BACKEND_URL,
-  getWsUrl: (taskId: string) => `${BACKEND_URL.replace("http", "ws")}/ws/${taskId}`,
+  getWsUrl: (taskId: string) => `${BACKEND_URL.replace("http", "ws")}/ws/${taskId}?user_id=${encodeURIComponent(getUserId())}`,
   getUniversities: (params?: { province?: string; tier?: string; q?: string }) => {
     const search = new URLSearchParams();
     if (params?.province) search.set("province", params.province);
@@ -107,7 +125,12 @@ export const api = {
   uploadUniversityFile: (name: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return fetch(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/files`, { method: "POST", body: form }).then(r => r.json());
+    const userId = getUserId();
+    return fetch(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/files`, {
+      method: "POST",
+      body: form,
+      headers: userId ? { "X-UniEmail-User-Id": userId } : undefined,
+    }).then(r => r.json());
   },
   deleteUniversityFile: (name: string, task_id: string, filename: string) =>
     request<{ ok: boolean }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/files?task_id=${encodeURIComponent(task_id)}&filename=${encodeURIComponent(filename)}`, { method: "DELETE" }),
@@ -131,6 +154,10 @@ export const api = {
   terminateAgent: (taskId: string) => request<{ ok: boolean; message: string }>(`${BACKEND_URL}/api/agent/terminate`, { method: "POST", body: JSON.stringify({ task_id: taskId }) }),
   classifyTask: (message: string) => request<{ is_crawl: boolean; intent: string; university: string; departments: string[]; reason: string }>(`${BACKEND_URL}/api/classify`, { method: "POST", body: JSON.stringify({ message }) }),
   getTaskSummary: (taskId: string) => request<import("@/lib/types").TaskSummary>(`${BACKEND_URL}/api/history/${taskId}/summary`),
+  askKnowledgeAgent: (message: string, university?: string) =>
+    request<{ answer: string; sources?: Array<Record<string, string>> }>(`${BACKEND_URL}/api/assistant/kb`, { method: "POST", body: JSON.stringify({ message, university }) }),
+  askChatAgent: (message: string) =>
+    request<{ answer: string }>(`${BACKEND_URL}/api/assistant/chat`, { method: "POST", body: JSON.stringify({ message }) }),
   // ── 高校表格导出 ──
   exportUniversityTable: (name: string, task_id: string, file: string, formats: string[]) =>
     request<{ ok: boolean; files: Record<string, string> }>(`${BACKEND_URL}/api/universities/${encodeURIComponent(name)}/export`, {

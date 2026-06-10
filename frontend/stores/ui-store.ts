@@ -13,6 +13,8 @@ interface UIStore {
   universityOpen: boolean;
   mailOpen: boolean;
   settingsOpen: boolean;
+  agentDockOpen: boolean;
+  agentDockMode: "kb" | "chat";
   highlightUniversity: string | null;
   pendingInput: string | null;
 
@@ -23,6 +25,8 @@ interface UIStore {
   setUniversityOpen: (open: boolean) => void;
   setMailOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
+  setAgentDockOpen: (open: boolean) => void;
+  setAgentDockMode: (mode: "kb" | "chat") => void;
   setHighlightUniversity: (name: string | null) => void;
   setPendingInput: (text: string | null) => void;
 }
@@ -36,6 +40,8 @@ export const useUIStore = create<UIStore>()(
       universityOpen: false,
       mailOpen: false,
       settingsOpen: false,
+      agentDockOpen: false,
+      agentDockMode: "kb",
       highlightUniversity: null,
       pendingInput: null,
 
@@ -46,6 +52,8 @@ export const useUIStore = create<UIStore>()(
       setUniversityOpen: (open) => set({ universityOpen: open }),
       setMailOpen: (open) => set({ mailOpen: open }),
       setSettingsOpen: (open) => set({ settingsOpen: open }),
+      setAgentDockOpen: (open) => set({ agentDockOpen: open }),
+      setAgentDockMode: (mode) => set({ agentDockMode: mode, agentDockOpen: true }),
       setHighlightUniversity: (name) => set({ highlightUniversity: name }),
       setPendingInput: (text) => set({ pendingInput: text }),
     }),

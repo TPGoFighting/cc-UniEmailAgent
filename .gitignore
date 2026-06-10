@@ -30,3 +30,17 @@ Thumbs.db
 
 # ── Claude Code 本地配置 ──
 .claude/
+
+# ── 本地构建及配置 ──
+backend/config.json
+backend/static/
+backend/build/
+backend/dist/
+backend/UniEmailAgent.spec
+backend/UniEmailAgentApp.spec
+backend/output.txt
+UniEmailAgent_Setup_*.exe
+installer/
+ref-*/
+ref-*.zip
+scratch/

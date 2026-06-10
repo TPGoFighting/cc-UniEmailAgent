@@ -9,7 +9,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+from agent.paths import DATA_DIR
 INDEX_FILE = DATA_DIR / "index.json"
 
 # 敏感信息过滤模式：匹配常见 API Key、Token、密码等
@@ -62,7 +62,7 @@ class HistoryManager:
     - data/{task_id}.json  → {"id": "task-xxx", "title": "...", "date": "...", "status": "...", "messages": [...]}
     """
 
-    def create_task(self, task_id: str, title: str) -> dict:
+    def create_task(self, task_id: str, title: str, owner_id: str = "") -> dict:
         """创建新任务条目，返回任务元数据。"""
         _ensure_data_dir()
         now = datetime.now()
@@ -71,7 +71,9 @@ class HistoryManager:
             "title": _filter_sensitive(title[:80]),
             "date": now.strftime("%Y-%m-%d"),
             "status": "running",
+            "owner_id": owner_id,
             "messages": [],
+            "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         }
         self._save(task)
         self._update_index(task_id, task["title"], task["date"], "running")
@@ -101,7 +103,7 @@ class HistoryManager:
         self._save(task)
         self._update_index(task_id, task.get("title", ""), task.get("date", ""), status)
 
-    def get_all(self) -> list[dict]:
+    def get_all(self, owner_id: str = "") -> list[dict]:
         """获取所有历史任务（不含消息内容，仅元数据）。"""
         _ensure_data_dir()
         if not INDEX_FILE.exists():
@@ -109,6 +111,8 @@ class HistoryManager:
         try:
             with open(INDEX_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            if owner_id:
+                data = [t for t in data if t.get("owner_id") == owner_id]
             # 按日期倒序
             data.sort(key=lambda t: t.get("date", ""), reverse=True)
             return data
@@ -116,18 +120,22 @@ class HistoryManager:
             logger.error(f"读取历史索引失败: {e}")
             return []
 
-    def get(self, task_id: str) -> dict | None:
+    def get(self, task_id: str, owner_id: str = "") -> dict | None:
         """获取指定任务的完整记录（含消息）。"""
         task = self._load(task_id)
         if task is None:
             return None
+        if owner_id and task.get("owner_id") != owner_id:
+            return None
         # 过滤掉 messages 中的占位空数组 guard
         return task
 
-    def rename_task(self, task_id: str, new_title: str) -> dict | None:
+    def rename_task(self, task_id: str, new_title: str, owner_id: str = "") -> dict | None:
         """重命名任务。"""
         task = self._load(task_id)
         if task is None:
+            return None
+        if owner_id and task.get("owner_id") != owner_id:
             return None
         title = _filter_sensitive(new_title[:80])
         task["title"] = title
@@ -135,25 +143,31 @@ class HistoryManager:
         self._update_index(task_id, title, task.get("date", ""), task.get("status", "completed"), task.get("pinned", False))
         return task
 
-    def toggle_pin(self, task_id: str) -> dict | None:
+    def toggle_pin(self, task_id: str, owner_id: str = "") -> dict | None:
         """切换置顶状态。"""
         task = self._load(task_id)
         if task is None:
+            return None
+        if owner_id and task.get("owner_id") != owner_id:
             return None
         task["pinned"] = not task.get("pinned", False)
         self._save(task)
         self._update_index(task_id, task.get("title", ""), task.get("date", ""), task.get("status", "completed"), task["pinned"])
         return task
 
-    def delete_task(self, task_id: str) -> bool:
+    def delete_task(self, task_id: str, owner_id: str = "") -> bool:
         """删除任务文件并从索引中移除。"""
         fp = self._filepath(task_id)
+        if owner_id:
+            task = self._load(task_id)
+            if task is None or task.get("owner_id") != owner_id:
+                return False
         if fp.exists():
             fp.unlink()
         self._remove_from_index(task_id)
         return True
 
-    def search(self, query: str) -> list[dict]:
+    def search(self, query: str, owner_id: str = "") -> list[dict]:
         """按标题模糊搜索（大小写不敏感）。"""
         _ensure_data_dir()
         if not INDEX_FILE.exists():
@@ -166,6 +180,8 @@ class HistoryManager:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             return []
+        if owner_id:
+            data = [t for t in data if t.get("owner_id") == owner_id]
         results = [t for t in data if q in t.get("title", "").lower()]
         results.sort(key=lambda t: t.get("date", ""), reverse=True)
         return results
@@ -229,6 +245,18 @@ class HistoryManager:
             except (json.JSONDecodeError, OSError):
                 tasks = []
 
+        # 尝试从任务详情文件中加载最新的 token_usage 与 pinned
+        token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        owner_id = ""
+        try:
+            task_detail = self._load(task_id)
+            if task_detail:
+                token_usage = task_detail.get("token_usage", token_usage)
+                pinned = task_detail.get("pinned", pinned)
+                owner_id = task_detail.get("owner_id", "")
+        except Exception:
+            pass
+
         # 更新或插入
         found = False
         for t in tasks:
@@ -237,10 +265,20 @@ class HistoryManager:
                 t["date"] = date
                 t["status"] = status
                 t["pinned"] = pinned
+                t["token_usage"] = token_usage
+                t["owner_id"] = owner_id
                 found = True
                 break
         if not found:
-            tasks.insert(0, {"id": task_id, "title": title, "date": date, "status": status, "pinned": pinned})
+            tasks.insert(0, {
+                "id": task_id,
+                "title": title,
+                "date": date,
+                "status": status,
+                "pinned": pinned,
+                "token_usage": token_usage,
+                "owner_id": owner_id
+            })
 
         try:
             _atomic_write(INDEX_FILE, tasks)

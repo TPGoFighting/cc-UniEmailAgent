@@ -9,7 +9,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_BASE_OUTPUT_DIR = Path(__file__).parent.parent / "outputs"
+from agent.paths import _BASE_OUTPUT_DIR
 
 HEADERS = ["序号", "姓名", "邮箱", "学院", "职称", "主页链接"]
 

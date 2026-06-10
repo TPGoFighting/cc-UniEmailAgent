@@ -26,6 +26,9 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const { copyMessage, editMessage, regenerate, deleteMessage } = useAgentChat();
+  const displayContent = (message.content || "")
+    .replace(/\[(FILES|REFLECTION)\][\s\S]*?\[\/\1\]/gi, "")
+    .trim();
 
   if (message.role === "user") {
     return (
@@ -126,8 +129,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
             <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground"> 
               <ContextMenuMessage
                 role="agent"
-                content={message.content}
-                onCopy={() => copyMessage(message.content)}
+                content={displayContent}
+                onCopy={() => copyMessage(displayContent)}
                 onRetry={regenerate}
                 onDelete={() => deleteMessage(message.id)}
               >
@@ -148,7 +151,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                     },
                   }}
                 >
-                  {message.content}
+                  {displayContent}
                 </ReactMarkdown>
               </ContextMenuMessage>
             </div>
@@ -158,8 +161,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <div className="opacity-0 transition-opacity duration-250 group-hover:opacity-100">
             <MessageActions
               role="agent"
-              content={message.content}
-              onCopy={() => copyMessage(message.content)}
+              content={displayContent}
+              onCopy={() => copyMessage(displayContent)}
               onRetry={regenerate}
               onDelete={() => deleteMessage(message.id)}
             />
@@ -201,7 +204,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
               </summary>
               <div className="mt-1 max-h-48 overflow-y-auto rounded bg-background/50 p-2">
                 <pre className="text-[11px] leading-relaxed text-muted-foreground/70 whitespace-pre-wrap font-mono">
-                  {message.content}
+                  {displayContent}
                 </pre>
               </div>
             </details>
@@ -227,8 +230,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/85 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_table]:w-full [&_table]:overflow-auto [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-sm [&_table]:rounded-lg [&_pre]:rounded-xl [&_pre]:bg-muted [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground"> 
             <ContextMenuMessage
               role="agent"
-              content={message.content}
-              onCopy={() => copyMessage(message.content)}
+              content={displayContent}
+              onCopy={() => copyMessage(displayContent)}
               onRetry={regenerate}
               onDelete={() => deleteMessage(message.id)}
             >
@@ -257,7 +260,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                   },
                 }}
               >
-                {message.content}
+                {displayContent}
               </ReactMarkdown>
             </ContextMenuMessage>
           </div>

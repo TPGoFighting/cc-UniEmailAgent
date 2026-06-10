@@ -25,7 +25,7 @@ PAGE_TIMEOUT = 30000  # 单页加载超时(ms)
 PROFILE_TIMEOUT = 30000  # 详情页加载超时(ms)
 
 # 从 data/university_urls.json 加载高校 URL 映射
-_DATA_DIR = Path(__file__).parent.parent / "data"
+from agent.paths import DATA_DIR as _DATA_DIR
 _UNIVERSITY_URLS_FILE = _DATA_DIR / "university_urls.json"
 def _load_university_urls() -> dict[str, str]:
     try:
@@ -67,7 +67,8 @@ class PlaywrightAgent:
     """
 
     def __init__(self, max_teachers_per_dept: int = 999999, max_depts: int = 999999):
-        self._base_output_dir = Path(__file__).parent.parent / "outputs"
+        from agent.paths import _BASE_OUTPUT_DIR
+        self._base_output_dir = _BASE_OUTPUT_DIR
         self._nav_text_cache: set[str] = set()  # 缓存已识别的导航文字
         self._browser = None  # Playwright browser 实例，供 stop_task 关闭
         self._context = None  # Browser context 实例
@@ -173,7 +174,7 @@ class PlaywrightAgent:
                 return name, url
 
         # 策略2：正则提取「XX大学」「XX学院」并尝试 URL 推断
-        uni_match = re.search(r"([一-鿿]{2,4}(?:大学|学院|师范大学|科技大学|理工大学))", user_part)
+        uni_match = re.search(r"([一-鿿]{2,12}(?:大学|学院|师范大学|科技大学|理工大学|工业大学|农业大学|医科大学|财经大学|外国语大学))", user_part)
         if uni_match:
             name = uni_match.group(1)
             inferred_url = self._infer_university_url(name)
@@ -183,7 +184,7 @@ class PlaywrightAgent:
         for name, url in sorted(UNIVERSITY_URLS.items(), key=lambda x: -len(x[0])):
             if name in message:
                 return name, url
-        uni_match = re.search(r"([一-鿿]{2,4}(?:大学|学院|师范大学|科技大学|理工大学))", message)
+        uni_match = re.search(r"([一-鿿]{2,12}(?:大学|学院|师范大学|科技大学|理工大学|工业大学|农业大学|医科大学|财经大学|外国语大学))", message)
         if uni_match:
             name = uni_match.group(1)
             inferred_url = self._infer_university_url(name)
@@ -990,6 +991,23 @@ class PlaywrightAgent:
         - www.{全拼}.edu.cn      （如 tsinghua.edu.cn）
         """
         import re as _re
+
+        try:
+            from agent.universities import DOMAIN_MAP, load_universities
+            domain = DOMAIN_MAP.get(name)
+            if domain:
+                return f"https://www.{domain}"
+            for item in load_universities():
+                if item.get("name") == name:
+                    website = item.get("website") or ""
+                    domain = item.get("domain") or ""
+                    if website:
+                        return website
+                    if domain:
+                        return f"https://www.{domain}"
+                    break
+        except Exception:
+            pass
 
         # 提取拼音首字母缩写进行二次推断
         # 常见大学名→缩写映射

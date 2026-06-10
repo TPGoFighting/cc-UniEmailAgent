@@ -9,7 +9,8 @@ import { UniversityWorkspace } from "@/components/university-workspace";
 import { MailWorkspace } from "@/components/mail-workspace";
 import { UndoToast } from "@/components/undo-toast";
 import { SettingsPanel } from "@/components/settings-panel";
-import { OnboardingTour, OnboardingFloatingButton } from "@/components/onboarding-tour";
+import { AgentDock } from "@/components/agent-dock";
+import { OnboardingTour } from "@/components/onboarding-tour";
 import { useChatStore } from "@/stores/chat-store";
 import { useUIStore } from "@/stores/ui-store";
 
@@ -78,9 +79,9 @@ export default function HomePage() {
         <UniversityWorkspace />
         <MailWorkspace />
         <SettingsPanel />
+        <AgentDock />
         <UndoToast />
         <OnboardingTour />
-        <OnboardingFloatingButton />
       </div>
     </ErrorBoundary>
   );

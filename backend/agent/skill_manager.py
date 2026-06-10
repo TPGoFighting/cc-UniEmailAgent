@@ -347,7 +347,10 @@ async def _llm_reflection(api_key: str, university_name: str, log_text: str) -> 
         from openai import AsyncOpenAI
 
         if os.environ.get("DEEPSEEK_API_KEY"):
-            client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=os.environ.get("DEEPSEEK_API_BASE") or os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1",
+            )
             model = "deepseek-chat"
         else:
             client = AsyncOpenAI(

@@ -14,7 +14,6 @@ import { TaskResultPanel } from "@/components/task-result-panel";
 import { ErrorAlert } from "@/components/error-alert";
 import { LogPanel } from "@/components/log-panel";
 import { EmptyState } from "@/components/empty-state";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { StatusTicker } from "@/components/status-ticker";
 import {
   DropdownMenu,
@@ -199,8 +198,6 @@ export function ChatArea() {
           >
             <Terminal className="size-4" />
           </Button>
-          {/* Theme toggle in header */}
-          <ThemeToggle />
           {/* More menu */}
           <DropdownMenu>
             <DropdownMenuTrigger className="flex size-8 items-center justify-center rounded-xl text-muted-foreground transition-colors duration-250 hover:bg-primary/[0.06] hover:text-primary outline-none" aria-label="更多菜单">
@@ -314,7 +311,7 @@ export function ChatArea() {
             {(composerState === "completed" || (composerState === "streaming" && currentCrawlSummary)) && (
               <TaskResultPanel
                 crawlSummary={currentCrawlSummary}
-                taskSummary={composerState === "completed" && currentSummary && currentSummary.total_teachers > 0 ? currentSummary : undefined}
+                taskSummary={composerState === "completed" ? currentSummary : undefined}
                 qualityEval={currentQualityEval}
                 traceUrl={currentTraceUrl}
               />

@@ -143,6 +143,7 @@ export interface UniversityRecord {
   row_count: number;
   valid_email_count: number;
   previewable: boolean;
+  is_best?: boolean;
 }
 
 // Phase 2: Crawl UI state types

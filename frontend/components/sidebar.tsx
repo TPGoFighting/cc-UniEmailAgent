@@ -4,7 +4,6 @@ import { useState, useMemo } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { SearchBar } from "@/components/search-bar";
 import { SidebarTaskItem } from "@/components/sidebar-task-item";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -226,7 +225,7 @@ export function Sidebar() {
 
       {/* 底部 */}
       <div className="flex items-center justify-center border-t border-border/40 px-4 py-3">
-        <ThemeToggle />
+        <span className="text-[10px] text-muted-foreground/40 font-mono">南京微特喜网络科技有限公司</span>
       </div>
 
       {/* 删除确认 */}

@@ -5,6 +5,7 @@ import { Check, Users, Mail, Building2, Clock, AlertTriangle, ExternalLink, Clip
 import { useState } from "react";
 import { FileCard } from "@/components/file-card";
 import { Button } from "@/components/ui/button";
+import { useUIStore } from "@/stores/ui-store";
 import type { CrawlSummaryData, TaskSummary, QualityEvalData } from "@/lib/types";
 
 interface TaskResultPanelProps {
@@ -42,17 +43,25 @@ export function TaskResultPanel({ crawlSummary, taskSummary, qualityEval, traceU
   if (!crawlSummary && !taskSummary) return null;
 
   const [copiedPreview, setCopiedPreview] = useState(false);
+  const setUniversityOpen = useUIStore((s) => s.setUniversityOpen);
+  const setHighlightUniversity = useUIStore((s) => s.setHighlightUniversity);
 
   const university = crawlSummary?.university || "";
-  const totalTeachers = crawlSummary?.total_teachers ?? taskSummary?.total_teachers ?? 0;
-  const totalEmails = crawlSummary?.total_emails ?? taskSummary?.valid_emails ?? 0;
+  const totalTeachers = (taskSummary?.total_teachers && taskSummary.total_teachers > 0)
+    ? taskSummary.total_teachers
+    : (crawlSummary?.total_teachers ?? 0);
+  const totalEmails = (taskSummary?.valid_emails && taskSummary.valid_emails > 0)
+    ? taskSummary.valid_emails
+    : (crawlSummary?.total_emails ?? 0);
   const duration = crawlSummary?.duration || "";
   const coverage = taskSummary?.coverage;
   const colleges = taskSummary?.colleges || [];
   const previewRows = taskSummary?.preview_rows || [];
   // Merge files from both sources
-  const crawlFiles = crawlSummary?.files || [];
-  const taskFiles = taskSummary?.files || [];
+  const normalizeFiles = (files: any[] = []) =>
+    files.map((f) => typeof f === "string" ? { filename: f } : f).filter((f) => f?.filename);
+  const crawlFiles = normalizeFiles(crawlSummary?.files || []);
+  const taskFiles = normalizeFiles(taskSummary?.files || []);
   const allFiles = [...crawlFiles, ...taskFiles].filter(
     (f, i, arr) => f.filename && arr.findIndex((x) => x.filename === f.filename) === i
   );
@@ -102,6 +111,24 @@ export function TaskResultPanel({ crawlSummary, taskSummary, qualityEval, traceU
             </a>
           )}
         </div>
+
+        {university && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              已同步至高校库，运营人员可在高校库核验名单、筛选院系并导出发送名单。
+            </p>
+            <Button
+              size="sm"
+              className="h-7 rounded-lg px-2.5 text-xs"
+              onClick={() => {
+                setHighlightUniversity(university);
+                setUniversityOpen(true);
+              }}
+            >
+              查看高校库
+            </Button>
+          </div>
+        )}
 
         {/* Metrics grid */}
         {metrics.length > 0 && (
