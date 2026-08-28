@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
-import type { CrawlStageState } from "@/lib/types";
+type CrawlStageState = { stage: number; stage_name: string; progress_pct: number; timestamp: string; };
 
 const STAGES = [
   { id: 1, label: "识别" },

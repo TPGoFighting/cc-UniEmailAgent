@@ -6,7 +6,6 @@ import { useChatStore } from "@/stores/chat-store";
 import { useUIStore } from "@/stores/ui-store";
 import { api } from "@/services/api";
 import { getWsManager } from "@/services/websocket";
-import { isCrawlTask, classifyIntent } from "@/services/classify";
 import { useHistory } from "@/hooks/queries/use-history";
 import { useTaskMessages } from "@/hooks/queries/use-task-messages";
 import { useRenameTask, usePinTask, useDeleteTask } from "@/hooks/queries/use-task-mutations";
@@ -21,20 +20,13 @@ function nextId(): string {
 }
 
 export function useAgentChat({
-   streaming = false,
+  streaming = false,
 }: {
-  /** 是否启用 WebSocket 流式连接。侧边栏等不需要流式推送的组件设为 false。 */
   streaming?: boolean;
 } = {}) {
   // ===== Stores =====
-  const {
-    tasks,
-    activeTaskId,
-    setActiveTask,
-    getActiveTask,
-    addTask,
-    updateTask,
-  } = useTaskStore();
+  const { tasks, activeTaskId, setActiveTask, getActiveTask, addTask, updateTask } =
+    useTaskStore();
 
   const {
     currentMessages,
@@ -43,7 +35,6 @@ export function useAgentChat({
     setCurrentMessages,
     appendMessage,
     setComposerState,
-    setIntent,
     addRunningTask,
     switchToTask,
   } = useChatStore();
@@ -51,20 +42,22 @@ export function useAgentChat({
   const { setSearchQuery } = useUIStore();
 
   const activeTask = getActiveTask();
-  const composerState = activeTaskId ? (composerStateMap[activeTaskId] || "idle") : "idle";
+  const composerState = activeTaskId
+    ? composerStateMap[activeTaskId] || "idle"
+    : "idle";
   const isRunning = activeTaskId ? runningTaskIds.includes(activeTaskId) : false;
 
   // ===== TanStack Query =====
   const historyQuery = useHistory();
   const messagesQuery = useTaskMessages(
-    // 仅在需要时加载消息（没有缓存的）
     activeTaskId && !useChatStore.getState().taskMessages[activeTaskId]
       ? activeTaskId
       : null
   );
 
   // ===== WebSocket Stream =====
-  const streamEnabled = streaming &&
+  const streamEnabled =
+    streaming &&
     (composerState === "connecting" || composerState === "streaming" || isRunning);
 
   const { stop: stopStream } = useTaskStream({
@@ -72,7 +65,6 @@ export function useAgentChat({
     enabled: streamEnabled,
   });
 
-  // ===== 本地状态追踪（避免闭包陈旧） =====
   const lastSentContentRef = useRef<string>("");
 
   // ===== 自动恢复上次活跃任务 =====
@@ -88,8 +80,10 @@ export function useAgentChat({
 
       if (target) {
         handleSelectTask(target);
-        // 如果任务状态是 running 且不在 runningTaskIds 中，尝试重连 WebSocket
-        if (target.status === "running" && !useChatStore.getState().runningTaskIds.includes(target.id)) {
+        if (
+          target.status === "running" &&
+          !useChatStore.getState().runningTaskIds.includes(target.id)
+        ) {
           setComposerState(target.id, "connecting");
           addRunningTask(target.id);
         }
@@ -102,13 +96,12 @@ export function useAgentChat({
 
   // ===== 操作 =====
 
-  /** 发送消息 */
   const handleSend = useCallback(
     async (content: string) => {
       let taskId = activeTaskId;
       lastSentContentRef.current = content;
 
-      // 没有活跃任务时自动创建
+      // 新建任务
       if (!taskId) {
         taskId = crypto.randomUUID();
         const title =
@@ -124,11 +117,10 @@ export function useAgentChat({
         setActiveTask(taskId);
         switchToTask(taskId);
 
-        // 更新标题
         try {
           await api.renameTask(taskId, title);
         } catch {
-          // 后端可能尚未保存此任务，忽略
+          // ignore
         }
       } else if (activeTask?.title === "新建任务") {
         const newTitle =
@@ -136,69 +128,48 @@ export function useAgentChat({
         try {
           await api.renameTask(taskId, newTitle);
         } catch {
-          // 忽略
+          // ignore
         }
         updateTask(taskId, { title: newTitle });
       }
 
       // 追加用户消息
-      const userMsg: Message = {
+      appendMessage(taskId, {
         id: nextId(),
         role: "user",
         content,
-      };
+      });
 
-      appendMessage(taskId, userMsg);
-
-      // 意图分类 + 存储
-      const intent = await classifyIntent(content);
-      setIntent(taskId, intent);
-
-      // 占位消息（按意图区分）
-      const placeholderMap: Record<string, string> = {
-        new_crawl: "正在连接后端…准备爬取任务",
-        incremental: "正在连接后端…准备增量补充",
-        simple_query: "正在分析数据…",
-      };
-      const placeholderMsg: Message = {
+      // 占位消息
+      appendMessage(taskId, {
         id: nextId(),
         role: "agent",
-        content: placeholderMap[intent.intent] || "正在思考中...",
+        content: "正在处理您的请求...",
         isStreaming: true,
-      };
-      appendMessage(taskId, placeholderMsg);
+      });
 
-      // 确保当前视图切换到该任务
       switchToTask(taskId);
 
       try {
-        // ⚡ 先发请求再等结果，利用 API 延迟期间建立 WS
         const chatPromise = api.createChat(content, taskId);
-
-        // 立即建立 WebSocket 连接，减少等待时间
         setComposerState(taskId, "connecting");
         addRunningTask(taskId);
 
         const res = await chatPromise;
-        const { task_id } = res;
-
-        // 仅当仍处于 connecting 状态时才切换到 streaming
-        // 防止 API 延迟返回时覆盖 WebSocket onClose 已设置的状态
         const currentState = useChatStore.getState().composerStateMap[taskId];
         if (currentState === "connecting") {
           setComposerState(taskId, "streaming");
         }
       } catch (err) {
-        const errorMsg: Message = {
-          id: nextId(),
-          role: "agent",
-          content: `无法连接后端服务：${err instanceof Error ? err.message : "未知错误"}。`,
-        };
         useChatStore.getState().replaceMessages(taskId, [
           ...(useChatStore.getState().taskMessages[taskId]?.filter(
-            (m) => m.id !== placeholderMsg.id
+            (m) => m.role !== "agent" || !m.isStreaming
           ) || []),
-          errorMsg,
+          {
+            id: nextId(),
+            role: "agent",
+            content: `无法连接后端服务：${err instanceof Error ? err.message : "未知错误"}。`,
+          },
         ]);
         setComposerState(taskId, "completed");
       }
@@ -206,12 +177,10 @@ export function useAgentChat({
     [activeTaskId, activeTask]
   );
 
-  /** 停止生成 */
   const handleStop = useCallback(() => {
     stopStream();
   }, [stopStream]);
 
-  /** 重新生成 */
   const handleRegenerate = useCallback(() => {
     if (!activeTaskId) return;
     const msgs = useChatStore.getState().taskMessages[activeTaskId] || [];
@@ -221,53 +190,46 @@ export function useAgentChat({
     const idx = msgs.length - 1 - lastUserIdx;
     const lastUserMsg = msgs[idx];
 
-    // ── 再生前先断开旧 WS 并停止后端任务 ──
     getWsManager().disconnect();
-    api.terminateAgent(activeTaskId).catch(() => {
-      // ignore — task may already be done
-    });
+    api.terminateAgent(activeTaskId).catch(() => {});
 
-    // 删除此消息之后的所有消息
     const trimmedMsgs = msgs.slice(0, idx);
     useChatStore.getState().replaceMessages(activeTaskId, trimmedMsgs);
     useChatStore.getState().setCurrentMessages(trimmedMsgs);
 
-    // 重新发送
     lastSentContentRef.current = lastUserMsg.content;
 
-    const userMsg: Message = {
+    appendMessage(activeTaskId, {
       id: nextId(),
       role: "user",
       content: lastUserMsg.content,
-    };
-
-    appendMessage(activeTaskId, userMsg);
+    });
     setComposerState(activeTaskId, "connecting");
     addRunningTask(activeTaskId);
 
-    api.createChat(lastUserMsg.content, activeTaskId).then((res) => {
-      const { task_id } = res as { task_id: string };
-      const currentState = useChatStore.getState().composerStateMap[activeTaskId];
-      if (currentState === "connecting") {
-        setComposerState(activeTaskId, "streaming");
-      }
-    }).catch((err) => {
-      const errorMsg: Message = {
-        id: nextId(),
-        role: "agent",
-        content: `无法连接后端服务：${err instanceof Error ? err.message : "未知错误"}。`,
-      };
-      appendMessage(activeTaskId, errorMsg);
-      setComposerState(activeTaskId, "completed");
-    });
+    api
+      .createChat(lastUserMsg.content, activeTaskId)
+      .then(() => {
+        const currentState =
+          useChatStore.getState().composerStateMap[activeTaskId];
+        if (currentState === "connecting") {
+          setComposerState(activeTaskId, "streaming");
+        }
+      })
+      .catch((err) => {
+        appendMessage(activeTaskId, {
+          id: nextId(),
+          role: "agent",
+          content: `无法连接后端服务：${err instanceof Error ? err.message : "未知错误"}。`,
+        });
+        setComposerState(activeTaskId, "completed");
+      });
   }, [activeTaskId]);
 
-  /** 选择任务 */
   const handleSelectTask = useCallback(
     (task: Task) => {
       setActiveTask(task.id);
       switchToTask(task.id, task.messages);
-      // 如果有缓存消息，直接切换
       const cached = useChatStore.getState().taskMessages[task.id];
       if (cached && cached.length > 0) {
         switchToTask(task.id, cached);
@@ -276,7 +238,6 @@ export function useAgentChat({
     [setActiveTask, switchToTask]
   );
 
-  /** 新建任务 */
   const handleNewTask = useCallback(() => {
     const taskId = crypto.randomUUID();
     const newTask: Task = {
@@ -292,12 +253,10 @@ export function useAgentChat({
     setCurrentMessages([welcomeMessage]);
   }, [addTask, setActiveTask, switchToTask, setCurrentMessages]);
 
-  /** 复制消息 */
   const handleCopyMessage = useCallback(async (content: string) => {
     await navigator.clipboard.writeText(content);
   }, []);
 
-  /** 编辑消息 */
   const handleEditMessage = useCallback(
     (messageId: string, content: string) => {
       useUIStore.getState().setEditTarget({ messageId, content });
@@ -305,7 +264,6 @@ export function useAgentChat({
     []
   );
 
-  /** 编辑保存 */
   const handleEditSave = useCallback(
     (newContent: string) => {
       const editTarget = useUIStore.getState().editTarget;
@@ -317,15 +275,14 @@ export function useAgentChat({
         ?.find((m) => m.id === editTarget.messageId);
 
       if (msg && msg.role === "user") {
-        // 更新消息
         useChatStore
           .getState()
           .updateMessage(activeTaskId, editTarget.messageId, {
             content: newContent,
           });
 
-        // 删除该消息之后的内容
-        const msgs = useChatStore.getState().taskMessages[activeTaskId] || [];
+        const msgs =
+          useChatStore.getState().taskMessages[activeTaskId] || [];
         const idx = msgs.findIndex((m) => m.id === editTarget.messageId);
         if (idx !== -1) {
           const trimmedMsgs = msgs.slice(0, idx + 1);
@@ -333,7 +290,6 @@ export function useAgentChat({
           useChatStore.getState().setCurrentMessages(trimmedMsgs);
         }
 
-        // 重新发送
         handleSend(newContent);
       }
 
@@ -342,16 +298,10 @@ export function useAgentChat({
     [activeTaskId, handleSend]
   );
 
-  /** 删除消息 */
   const handleDeleteMessage = useCallback(
     (messageId: string) => {
       if (!activeTaskId) return;
       const msgs = useChatStore.getState().taskMessages[activeTaskId] || [];
-      const target = msgs.find((m) => m.id === messageId);
-      if (target) {
-        // 推入撤销队列
-        useChatStore.getState().pushUndo(activeTaskId, target);
-      }
       const filtered = msgs.filter((m) => m.id !== messageId);
       useChatStore.getState().replaceMessages(activeTaskId, filtered);
       useChatStore.getState().setCurrentMessages(filtered);
@@ -359,7 +309,6 @@ export function useAgentChat({
     [activeTaskId]
   );
 
-  /** 搜索 */
   const handleSearch = useCallback(
     async (query: string) => {
       setSearchQuery(query);
@@ -368,24 +317,26 @@ export function useAgentChat({
         return;
       }
       try {
-        const data = await api.searchTasks(query) as { tasks?: any[] };
-        const results = (data.tasks || []).map(
-          (t) => ({ ...t, status: t.status || "completed" } as Task)
-        );
+        const data = (await api.getHistory()) as any;
+        const results = (data.tasks || [])
+          .filter(
+            (t: any) =>
+              (t.title || "").toLowerCase().includes(query.toLowerCase())
+          )
+          .map((t: any) => ({ ...t, status: t.status || "completed" } as Task));
         useTaskStore.getState().setTasks(results);
       } catch {
         // ignore
       }
     },
-    [setSearchQuery]
+    [setSearchQuery, historyQuery]
   );
 
-  const renameTask = useRenameTask();
-  const pinTask = usePinTask();
-  const deleteTask = useDeleteTask();
+  const renameTaskMut = useRenameTask();
+  const pinTaskMut = usePinTask();
+  const deleteTaskMut = useDeleteTask();
 
   return {
-    // 状态
     tasks,
     activeTask,
     activeTaskId,
@@ -393,11 +344,9 @@ export function useAgentChat({
     composerState,
     isRunning,
 
-    // TanStack Query 状态
     isLoading: historyQuery.isLoading,
     isError: historyQuery.isError,
 
-    // 操作
     send: handleSend,
     stop: handleStop,
     regenerate: handleRegenerate,
@@ -409,8 +358,8 @@ export function useAgentChat({
     deleteMessage: handleDeleteMessage,
     search: handleSearch,
     renameTask: (taskId: string, title: string) =>
-      renameTask.mutate({ taskId, title }),
-    pinTask: (taskId: string) => pinTask.mutate(taskId),
-    deleteTask: (taskId: string) => deleteTask.mutate(taskId),
+      renameTaskMut.mutate({ taskId, title }),
+    pinTask: (taskId: string) => pinTaskMut.mutate(taskId),
+    deleteTask: (taskId: string) => deleteTaskMut.mutate(taskId),
   };
 }

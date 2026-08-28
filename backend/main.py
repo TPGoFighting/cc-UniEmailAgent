@@ -20,18 +20,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from agent.claude_agent import ClaudeAgent
 from agent.hermes_agent import HermesOrchestrator
 from agent.graph_agent import GraphAgent
 from agent.openclaw_agent import OpenClawAgent
-from agent.exporter import get_task_dir, cleanup_task_dir, _BASE_OUTPUT_DIR
+from agent.exporter import get_task_dir, cleanup_task_dir
+from agent.paths import get_base_output_dir
 from agent.history import history
 from agent.intent_router import classify_intent, IntentType, IntentResult
 from agent.skill_manager import (
     load_skills_prompt,
     reflect_and_save,
-    get_data_schema_prompt,
+    _safe_write,
     get_task_isolation_prompt,
+    get_data_schema_prompt,
 )
 from agent.memory import search_mem0, save_to_mem0
 from agent.data_memory import index_csv_to_memory, search_data, DataMemory
@@ -47,6 +48,8 @@ from agent.universities import (
     delete_university_file,
     rename_university_file,
     clean_university_tables,
+    get_storage_info,
+    set_scan_data_dir,
 )
 from agent.cleaner import is_valid_person_name, is_valid_email_format, is_admin_email
 from agent.guardrails import check_input, check_output, sanitize_output, GUARD_MODE
@@ -67,28 +70,14 @@ logger = logging.getLogger(__name__)
 # 降低第三方库的日志噪音，防止控制台刷屏
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("agent.claude_agent").setLevel(logging.WARNING)
-
-# Agent 选择策略（优先级：HermesAgent > HermesOrchestrator > GraphAgent > OpenClaw > Claude）
+# Agent 选择策略（直接使用 DirectorAgent）
 try:
-    import shutil
-    if shutil.which("hermes"):
-        from agent.hermes_agent import HermesAgent
-        agent = HermesAgent()
-        logger.info("使用 Hermes Agent（CLI 子进程引擎）")
-    elif os.environ.get("GRAPH_AGENT_ENABLED", "").lower() in ("true", "1", "yes"):
-        agent = GraphAgent()
-        logger.info("使用 GraphAgent（LangGraph 状态机）")
-    elif shutil.which("openclaw"):
-        from agent.openclaw_agent import OpenClawAgent
-        agent = OpenClawAgent()
-        logger.info("使用 OpenClaw Agent（DeepSeek 引擎）")
-    else:
-        agent = ClaudeAgent()
-        logger.info("使用 Claude Agent（回退）")
+    from agent_framework.adapter import DirectorAgentAdapter
+    agent = DirectorAgentAdapter()
+    logger.info("使用 DirectorAgent（自定义 AI Agent 框架，工具驱动）")
 except Exception:
-    agent = ClaudeAgent()
-    logger.info("使用 Claude Agent（回退）")
+    logger.error("DirectorAgent 加载失败，无法启动")
+    raise RuntimeError("DirectorAgent 加载失败")
 
 # 正在执行 Agent 的任务追踪（task_id -> asyncio.Task），防止重复执行
 _running_agent_tasks: dict[str, asyncio.Task] = {}
@@ -129,6 +118,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"启动自动依赖安装检查失败: {e}")
     yield
+    # 关闭时清理 DirectorAgent 的浏览器实例
+    try:
+        from agent_framework.tools.browser import cleanup_browser
+        import asyncio
+        asyncio.create_task(cleanup_browser())
+    except Exception:
+        pass
     logger.info("UniEmail Agent 后端关闭")
 
 
@@ -213,7 +209,7 @@ async def health():
 
 
 class ConfigUpdateSchema(BaseModel):
-    service_mode: str
+    service_mode: str = "custom"
     service_token: str | None = None
     deepseek_api_key: str | None = None
 
@@ -241,7 +237,7 @@ async def get_config():
 
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateSchema):
-    from agent.config import load_config, save_config
+    from agent.config import CONFIG_FILE, load_config, save_config
     current = load_config()
     
     def mask_key(k: str) -> str:
@@ -249,21 +245,33 @@ async def update_config(req: ConfigUpdateSchema):
             return ""
         return f"{k[:4]}...{k[-4:]}"
     
+    if req.service_mode not in {"custom", "cloud"}:
+        raise HTTPException(status_code=400, detail="invalid service_mode")
+
     current_masked = mask_key(current.get("deepseek_api_key", ""))
-    if req.deepseek_api_key is not None and req.deepseek_api_key != current_masked:
-        current["deepseek_api_key"] = req.deepseek_api_key
-    
-    if req.service_token is not None and not req.service_token.startswith("http") and mask_key(req.service_token) != req.service_token:
-        current["service_token"] = req.service_token
-        
+    if "deepseek_api_key" in req.model_fields_set:
+        incoming_key = (req.deepseek_api_key or "").strip()
+        if incoming_key != current_masked:
+            current["deepseek_api_key"] = incoming_key
+
+    if "service_token" in req.model_fields_set:
+        incoming_token = (req.service_token or "").strip()
+        if not incoming_token.startswith("http") and mask_key(incoming_token) != incoming_token:
+            current["service_token"] = incoming_token
+
     current["service_mode"] = req.service_mode
-    save_config(current)
+    try:
+        save_config(current)
+    except Exception as exc:
+        logger.error("Failed to save API config to %s: %s", CONFIG_FILE, exc)
+        raise HTTPException(status_code=500, detail="config_save_failed") from exc
     
     # 同步环境变量
     from agent.config import sync_llm_settings_to_environ
     sync_llm_settings_to_environ()
         
-    return {"ok": True}
+    saved = load_config()
+    return {"ok": True, "has_deepseek_key": bool(saved.get("deepseek_api_key", ""))}
 
 
 @app.get("/api/diagnostics")
@@ -738,7 +746,7 @@ async def download_file_tasked(task_id: str, filename: str):
     ):
         raise HTTPException(status_code=400, detail="invalid filename")
     safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-    base = _BASE_OUTPUT_DIR.resolve()
+    base = get_base_output_dir().resolve()
     filepath = _safe_resolve(base, safe_tid, *filename_parts)
     if filepath is None or not filepath.exists():
         # 后备方案：如果任务专属目录下未找到（可能是自定义脚本写到了根目录），尝试在 outputs 根目录下查找该文件
@@ -759,7 +767,7 @@ async def download_file_tasked(task_id: str, filename: str):
 async def download_file(filename: str):
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="invalid filename")
-    base = _BASE_OUTPUT_DIR.resolve()
+    base = get_base_output_dir().resolve()
     filepath = _safe_resolve(base, filename)
     if filepath and filepath.exists():
         ext = filepath.suffix.lower()
@@ -1048,6 +1056,20 @@ async def list_universities(
     return build_university_response(province=province, tier=tier, q=q)
 
 
+@app.get("/api/universities/storage")
+async def university_storage():
+    return {"storage": get_storage_info()}
+
+
+@app.post("/api/universities/storage")
+async def update_university_storage(body: dict):
+    try:
+        storage = set_scan_data_dir(str(body.get("data_dir") or ""))
+        return {"ok": True, "storage": storage}
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/universities/{name}/records")
 async def university_records(name: str):
     return get_university_records(name)
@@ -1166,7 +1188,7 @@ async def export_university_table(name: str, body: dict):
 
     body 示例: {"task_id": "...", "file": "...", "formats": ["csv", "xlsx", "md", "html", "pdf", "docx"]}
     """
-    from agent.exporter import export_all, _BASE_OUTPUT_DIR, _build_rows
+    from agent.exporter import export_all, _build_rows
     from agent.universities import resolve_table_path, _read_csv, _read_xlsx
 
     path = resolve_table_path(body.get("task_id", ""), body.get("file", ""))
@@ -1352,11 +1374,11 @@ def _resolve_file_in_task(task_id: str, filename: str) -> str:
     if not task_id or not filename:
         return ""
     safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-    candidate = _BASE_OUTPUT_DIR / safe_tid / filename
+    candidate = get_base_output_dir() / safe_tid / filename
     if candidate.exists():
         return str(candidate.resolve())
     # 也在根 outputs 下查找
-    root_candidate = _BASE_OUTPUT_DIR / filename
+    root_candidate = get_base_output_dir() / filename
     if root_candidate.exists():
         return str(root_candidate.resolve())
     return ""
@@ -1445,7 +1467,7 @@ def _build_context_prompt(task_data: dict, latest_user_msg: str, task_id: str = 
     # ── 扫描 outputs/{task_id} 下的现有数据文件（failed/stopped 续爬） ──
     task_status = task_data.get("status", "")
     if task_id and task_status in ("failed", "stopped"):
-        output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+        output_dir = get_base_output_dir() / task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
         if output_dir.exists():
             data_files = []
             py_files = []
@@ -1502,7 +1524,7 @@ def _build_context_prompt(task_data: dict, latest_user_msg: str, task_id: str = 
 
 
 def _detect_file_request(message: str) -> list[dict]:
-    base = _BASE_OUTPUT_DIR.resolve()
+    base = get_base_output_dir().resolve()
     results: list[dict] = []
 
     quoted = re.findall(r'["""]([A-Za-z]:\\[^"""]+?\.[a-zA-Z0-9]+)[""""]', message)
@@ -1590,7 +1612,7 @@ def _export_current_task_data(task_id: str, message: str, university_name: str =
         return []
 
     safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-    output_dir = _BASE_OUTPUT_DIR / safe_tid
+    output_dir = get_base_output_dir() / safe_tid
     if not output_dir.exists():
         return []
 
@@ -1631,7 +1653,7 @@ def _export_current_task_data(task_id: str, message: str, university_name: str =
 
 def _task_output_dir(task_id: str) -> Path:
     safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-    return _BASE_OUTPUT_DIR / safe_tid
+    return get_base_output_dir() / safe_tid
 
 
 def _download_payload_for_path(path: Path, task_id: str = "") -> dict:
@@ -1642,6 +1664,87 @@ def _download_payload_for_path(path: Path, task_id: str = "") -> dict:
         "size": path.stat().st_size if path.exists() else 0,
         "url": f"/api/download/{quote(safe_tid)}/{quote(path.name)}" if safe_tid else f"/api/download/{quote(path.name)}",
     }
+
+
+async def _run_direct_seu_cse_crawl(ws: WebSocket, task_id: str, user_message: str, university_name: str = "") -> bool:
+    from agent.seu_cse_crawler import DEPARTMENT, is_seu_cse_request, crawl_seu_cse_teachers
+    from agent.exporter import export_all
+
+    if not is_seu_cse_request(user_message, university_name):
+        return False
+
+    msg_seq = 0
+
+    async def send_log(message: str) -> None:
+        nonlocal msg_seq
+        msg_seq += 1
+        ts = datetime.now().strftime("%H:%M:%S")
+        payload = {"type": "log", "message": message, "timestamp": ts}
+        history.add_message(task_id, {
+            "id": f"log-{task_id[:8]}-{ts}-{msg_seq}",
+            "role": "log",
+            "content": message,
+            "timestamp": ts,
+        })
+        await ws.send_text(json.dumps(payload, ensure_ascii=False))
+
+    try:
+        await send_log("已启用东南大学计算机学院专用爬取流程")
+        records = await crawl_seu_cse_teachers(send_log)
+        if not records:
+            raise RuntimeError("未提取到教师记录")
+
+        await send_log("正在生成 CSV / XLSX 结果文件...")
+        exported = export_all(records, f"东南大学_{DEPARTMENT}", task_id, formats=["csv", "xlsx"])
+        downloads: list[dict] = []
+        ts = datetime.now().strftime("%H:%M:%S")
+        safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+        for fmt, filename in exported.items():
+            msg_seq += 1
+            download_msg = {
+                "type": "download",
+                "message": f"{fmt.upper()} 文件已生成",
+                "filename": filename,
+                "url": f"/api/download/{quote(safe_tid)}/{quote(filename)}",
+                "timestamp": ts,
+            }
+            downloads.append(download_msg)
+            history.add_message(task_id, {
+                "id": f"download-{task_id[:8]}-{ts}-{msg_seq}",
+                "role": "download",
+                "content": download_msg["message"],
+                "filename": filename,
+                "url": download_msg["url"],
+                "timestamp": ts,
+            })
+            await ws.send_text(json.dumps(download_msg, ensure_ascii=False))
+
+        stats = _summarize_task_outputs(task_id)
+        total = stats.get("total_teachers", len(records))
+        valid = stats.get("valid_emails", sum(1 for row in records if row.get("email")))
+        summary = f"完成：东南大学{DEPARTMENT}共 {total} 位教师，{valid} 个有效邮箱。本次已生成 CSV 和 XLSX 文件，并已在页面推送结果。"
+        history.add_message(task_id, {
+            "id": f"done-{task_id[:8]}-{ts}",
+            "role": "agent",
+            "content": summary,
+            "timestamp": ts,
+        })
+        await ws.send_text(json.dumps({"type": "done", "message": summary, "timestamp": ts}, ensure_ascii=False))
+        history.update_status(task_id, "completed")
+        await ws.close()
+        return True
+    except Exception as exc:
+        logger.error("SEU CSE direct crawl failed: %s", exc, exc_info=True)
+        ts = datetime.now().strftime("%H:%M:%S")
+        message = f"东南大学计算机学院专用爬取失败，已转入通用 Agent：{str(exc)[:120]}"
+        history.add_message(task_id, {
+            "id": f"log-{task_id[:8]}-{ts}-direct-fallback",
+            "role": "log",
+            "content": message,
+            "timestamp": ts,
+        })
+        await ws.send_text(json.dumps({"type": "log", "message": message, "timestamp": ts}, ensure_ascii=False))
+        return False
 
 
 def _table_value(row: dict, *keys: str) -> str:
@@ -1711,8 +1814,13 @@ def _search_tables_for_knowledge(query: str, university: str = "", limit: int = 
         try:
             from agent.universities import _candidate_output_files
             paths = [p for p in _candidate_output_files() if p.suffix.lower() in (".csv", ".xlsx")]
+            base_dir = get_base_output_dir().resolve()
             records = [
-                {"filename": p.name, "task_id": p.parent.name if p.parent != _BASE_OUTPUT_DIR else "", "path": str(p)}
+                {
+                    "filename": p.name,
+                    "task_id": "/".join(p.resolve().relative_to(base_dir).parts[:-1]),
+                    "path": str(p),
+                }
                 for p in paths
             ]
         except Exception:
@@ -1857,7 +1965,7 @@ def _validate_crawl_output(task_id: str, target_depts: list[str] | None = None) 
     import csv
     from pathlib import Path
     
-    output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+    output_dir = get_base_output_dir() / task_id.replace("/", "_").replace("\\", "_")
     if not output_dir.exists():
         return {"status": "skip", "reason": "no output directory"}
     
@@ -1989,8 +2097,7 @@ TECHNICAL_PATTERNS = [
     r"Traceback \(most recent call last\)",
     r"playwright_agent\.py",
     r"hermes_agent\.py",
-    r"claude_agent\.py",
-    r"main\.py",
+        r"main\.py",
 ]
 
 def _parse_structured_log(raw_msg: str) -> dict | None:
@@ -2164,7 +2271,7 @@ def _append_agent_log(task_id: str, msg_type: str, content: str, ts: str = "") -
     # LangSmith 追踪子 span（失败时静默退化）
     span_id = start_span("agent_log", {"type": msg_type, "content": content[:100], "task_id": task_id})
     safe = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-    log_path = _BASE_OUTPUT_DIR / safe / "agent_output.log"
+    log_path = get_base_output_dir() / safe / "agent_output.log"
     try:
         timestamp = ts or datetime.now().strftime("%H:%M:%S")
         with open(log_path, "a", encoding="utf-8") as f:
@@ -2351,7 +2458,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
         old_task = _running_agent_tasks[task_id]
         if not old_task.done():
             logger.warning(f"task {task_id} has running handler, cancelling old one")
-            # 先杀 Agent 子进程（兼容 HermesOrchestrator / ClaudeAgent / OpenClawAgent）
+            # 先杀 Agent 子进程
             try:
                 # 编排器通过 _agent 或 _claude 持有底层执行器
                 inner = getattr(agent, "_agent", None) or getattr(agent, "_claude", None) or agent
@@ -2432,7 +2539,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
         has_data = False
         existing_uni = ""
         if task_id:
-            output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+            output_dir = get_base_output_dir() / task_id.replace("/", "_").replace("\\", "_")
             if output_dir.exists():
                 csv_files = list(output_dir.glob("*.csv")) + list(output_dir.glob("*.xlsx"))
                 has_data = any(f.stat().st_size > 200 for f in csv_files)
@@ -2456,6 +2563,8 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
             f"[IntentRouter] task {task_id[:8]}: intent={intent_result.intent.value} "
             f"uni={intent_result.university_name} reason={intent_result.reason}"
         )
+        if await _run_direct_seu_cse_crawl(ws, task_id, user_message, intent_result.university_name):
+            return
 
         direct_exports = _export_current_task_data(task_id, user_message, intent_result.university_name)
         if direct_exports:
@@ -2491,7 +2600,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
             return
 
         # ── 已有产出文件 + 已有历史消息 → 跳过执行，回放历史（仅限非增量任务） ──
-        output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+        output_dir = get_base_output_dir() / task_id.replace("/", "_").replace("\\", "_")
         existing_files = list(output_dir.glob("*.csv")) + list(output_dir.glob("*.xlsx"))
         has_valid_files = any(f.stat().st_size > 200 for f in existing_files)
         if has_valid_files and intent_result.intent != IntentType.INCREMENTAL_CRAWL:
@@ -2529,7 +2638,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
             model = "deepseek-chat"
 
             # 尝试从 DataMemory 检索相关数据
-            data_results = search_data(user_message, intent_result.university_name)
+            data_results = await search_data(user_message, intent_result.university_name)
             if data_results:
                 # 有数据 → 构造带数据的 prompt，让 LLM 回答
                 univ = intent_result.university_name or data_results[0]["university"]
@@ -2600,6 +2709,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
         # ── NEW_CRAWL / INCREMENTAL_CRAWL 共用执行路径 ──
         is_crawl = True
         is_incremental = intent_result.intent == IntentType.INCREMENTAL_CRAWL
+
 
         # 构建爬取提示词：技能注入 + 数据规范 + 任务隔离
         skill_prompt = load_skills_prompt(intent_result.university_name)
@@ -2916,7 +3026,32 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
                         "timestamp": text_buffer_ts,
                     })
                     text_buffer.clear()
-            role_map = {"log": "log", "download": "download", "error": "agent", "done": "agent", "text": "text"}
+            if msg_type == "activity":
+                # DirectorAgent 的 Reflection-Before-Action 活动事件
+                # 实时展示 thinking→executing→executed 流，不存历史
+                await ws.send_text(json.dumps({
+                    "type": "activity",
+                    "activity": log.get("activity", {}),
+                    "timestamp": log.get("timestamp", datetime.now().strftime("%H:%M:%S")),
+                }, ensure_ascii=False))
+                continue
+            if msg_type == "worker_progress":
+                # dispatch_workers 的并行 Worker 进度事件
+                w = log.get("worker_progress", {})
+                # 同时存入历史以供前端回溯
+                history.add_message(task_id, {
+                    "id": f"worker-{task_id[:8]}-{log.get('timestamp', '')}-{w.get('name', '?')}",
+                    "role": "worker_progress",
+                    "content": json.dumps(w, ensure_ascii=False),
+                    "timestamp": log.get("timestamp", ""),
+                })
+                await ws.send_text(json.dumps({
+                    "type": "worker_progress",
+                    "worker_progress": w,
+                    "timestamp": log.get("timestamp", datetime.now().strftime("%H:%M:%S")),
+                }, ensure_ascii=False))
+                continue
+            role_map = {"log": "log", "download": "download", "error": "agent", "done": "agent", "text": "text", "activity": "activity", "worker_progress": "worker_progress"}
             # 先写历史再发 WS，防止刷新时消息丢失
             history.add_message(task_id, {
                 "id": f"{msg_type}-{task_id[:8]}-{log.get('timestamp', '')}-{msg_seq}",
@@ -2985,7 +3120,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
 
             # ── IntellAgent 自动评估 ──
             try:
-                output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+                output_dir = get_base_output_dir() / task_id.replace("/", "_").replace("\\", "_")
                 if output_dir.exists():
                     uni_config = {"departments": target_depts} if target_depts else None
                     for csv_file in output_dir.glob("*.csv"):
@@ -3064,7 +3199,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
                     # 统计各个 CSV 行数
                     total_rows = 0
                     total_emails = 0
-                    output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+                    output_dir = get_base_output_dir() / task_id.replace("/", "_").replace("\\", "_")
                     if output_dir.exists():
                         import csv as csv_mod
                         for csv_file in output_dir.glob("*.csv"):
@@ -3108,7 +3243,7 @@ async def agent_logs(ws: WebSocket, task_id: str, user_id: str = ""):
 
             # ── 索引爬取结果到 DataMemory（与 CrawlMemory 分离） ──
             if uni_name:
-                output_dir = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_")
+                output_dir = get_base_output_dir() / task_id.replace("/", "_").replace("\\", "_")
                 if output_dir.exists():
                     for csv_file in sorted(output_dir.glob("*.csv")):
                         if csv_file.stat().st_size > 200:

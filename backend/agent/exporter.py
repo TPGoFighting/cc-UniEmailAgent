@@ -9,7 +9,13 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from agent.paths import _BASE_OUTPUT_DIR
+from agent.paths import get_base_output_dir
+
+_BASE_OUTPUT_DIR = get_base_output_dir()
+
+
+def _output_dir() -> Path:
+    return get_base_output_dir()
 
 HEADERS = ["序号", "姓名", "邮箱", "学院", "职称", "主页链接"]
 
@@ -18,9 +24,9 @@ def get_task_dir(task_id: str = "") -> Path:
     """返回任务专属输出目录。task_id 为空时使用兼容根目录。"""
     if task_id:
         safe = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-        d = _BASE_OUTPUT_DIR / safe
+        d = _output_dir() / safe
     else:
-        d = _BASE_OUTPUT_DIR
+        d = _output_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -29,7 +35,7 @@ def cleanup_task_dir(task_id: str) -> None:
     """删除任务专属目录及其所有文件。"""
     if not task_id:
         return
-    d = _BASE_OUTPUT_DIR / task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+    d = _output_dir() / task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
     if not d.exists():
         return
     for f in d.iterdir():

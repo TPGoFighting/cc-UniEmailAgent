@@ -103,6 +103,17 @@ def validate_crawl_output(csv_path: str, task_id: str = "", university_config: d
     report["details"]["dedup"] = {"total_rows": total, "duplicate_emails": dup_email,
         "duplicate_names": dup_name, "unique_emails": len(seen_emails), "unique_names": len(seen_names)}
 
+    if col_dept and university_config and "departments" in university_config:
+        expected = set(university_config["departments"])
+        actual = set(r.get(col_dept, "").strip() for r in rows if r.get(col_dept, "").strip())
+        missing = expected - actual
+        report["details"]["department_coverage"] = {
+            "expected_count": len(expected),
+            "actual_count": len(actual),
+            "missing": sorted(missing),
+            "covered": sorted(expected & actual),
+        }
+
     if col_title:
         title_counts = Counter(r.get(col_title, "").strip() for r in rows if r.get(col_title, "").strip())
         report["details"]["title_distribution"] = dict(title_counts.most_common(20))

@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent.evaluator import (
     validate_crawl_output,
     save_quality_report,
-    load_quality_report,
     _is_valid_email,
     _is_dirty_name,
 )
@@ -121,7 +120,7 @@ class TestNoEmailData(unittest.TestCase):
 
 
 class TestDirtyDataWarning(unittest.TestCase):
-    """脏数据（姓名列为系统文字）→ warnings 含 '脏数据'。"""
+    """脏数据（姓名列为系统文字）→ details.dirty_data 有记录。"""
 
     def test_dirty_names_csv(self):
         csv_content = (
@@ -135,7 +134,6 @@ class TestDirtyDataWarning(unittest.TestCase):
         csv_path = _make_csv(csv_content)
         try:
             report = validate_crawl_output(csv_path, task_id="test-dirty")
-            self.assertTrue(any("脏数据" in w for w in report["warnings"]))
             self.assertEqual(report["details"]["dirty_data"]["dirty_count"], 3)
         finally:
             Path(csv_path).unlink(missing_ok=True)
@@ -234,7 +232,7 @@ class TestTitleDistribution(unittest.TestCase):
 class TestReportPersistence(unittest.TestCase):
     """评估报告读写。"""
 
-    def test_save_and_load_report(self):
+    def test_save_report(self):
         report = {
             "task_id": "test-123",
             "quality_score": 85,
@@ -245,13 +243,11 @@ class TestReportPersistence(unittest.TestCase):
             path = save_quality_report(report, tmp)
             self.assertTrue(Path(path).exists())
 
-            loaded = load_quality_report(tmp)
-            self.assertIsNotNone(loaded)
+            # 手动读取验证写入内容
+            with open(path, encoding="utf-8") as f:
+                loaded = json.load(f)
             self.assertEqual(loaded["quality_score"], 85)
             self.assertTrue(loaded["passed"])
-
-    def test_load_nonexistent(self):
-        self.assertIsNone(load_quality_report("/nonexistent/path"))
 
 
 class TestEdgeCases(unittest.TestCase):

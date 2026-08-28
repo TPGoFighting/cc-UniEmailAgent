@@ -4,6 +4,7 @@
 以避开 Windows 系统目录写权限限制。
 """
 
+import json
 import os
 import sys
 import shutil
@@ -31,10 +32,94 @@ def get_runtime_base_dir() -> Path:
         return Path(sys.executable).parent
     return Path(__file__).parent.parent.resolve()
 
+
+def _configured_path(env_name: str, default: Path) -> Path:
+    value = os.environ.get(env_name, "").strip()
+    if value:
+        return Path(value).expanduser().resolve()
+    return default.resolve()
+
+
+def _default_fac_root_dir() -> Path:
+    if os.name == "nt":
+        return Path("D:/Work/fac")
+    return get_runtime_base_dir() / "fac"
+
+
+FAC_ROOT_DIR = _configured_path("UNIEMAIL_FAC_ROOT", _default_fac_root_dir())
+FAC_UNIVERSITY_DIR = _configured_path("UNIEMAIL_FAC_UNIVERSITY_DIR", FAC_ROOT_DIR / "universities")
+DEFAULT_FAC_DATA_DIR = _configured_path("UNIEMAIL_FAC_DATA_DIR", FAC_ROOT_DIR / "data")
+FAC_SETTINGS_FILE = FAC_ROOT_DIR / "settings.json"
+FAC_MAIL_DIR = _configured_path("UNIEMAIL_FAC_MAIL_DIR", FAC_ROOT_DIR / "mail")
+
+
+def _load_fac_data_dir() -> Path:
+    if os.environ.get("UNIEMAIL_FAC_DATA_DIR", "").strip():
+        return DEFAULT_FAC_DATA_DIR
+    try:
+        if FAC_SETTINGS_FILE.exists():
+            data = json.loads(FAC_SETTINGS_FILE.read_text(encoding="utf-8"))
+            value = str(data.get("data_dir") or "").strip()
+            if value:
+                return Path(value).expanduser().resolve()
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    return DEFAULT_FAC_DATA_DIR
+
+
+FAC_DATA_DIR = _load_fac_data_dir()
+
 # ── 持久化子目录定义 ──
 DATA_DIR = get_runtime_base_dir() / "data"
-_BASE_OUTPUT_DIR = get_runtime_base_dir() / "outputs"
+_BASE_OUTPUT_DIR = FAC_DATA_DIR
 SKILLS_DIR = get_runtime_base_dir() / "skills"
+
+
+def get_fac_data_dir() -> Path:
+    return FAC_DATA_DIR
+
+
+def get_base_output_dir() -> Path:
+    return _BASE_OUTPUT_DIR
+
+
+def _persist_fac_data_dir(path: Path) -> None:
+    FAC_ROOT_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {"data_dir": str(path)}
+    tmp = FAC_SETTINGS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, FAC_SETTINGS_FILE)
+
+
+def _sync_imported_output_dir(path: Path) -> None:
+    for module_name in ("agent.exporter", "agent.universities", "main"):
+        module = sys.modules.get(module_name)
+        if module is not None and hasattr(module, "_BASE_OUTPUT_DIR"):
+            try:
+                setattr(module, "_BASE_OUTPUT_DIR", path)
+            except Exception:
+                pass
+
+
+def set_fac_data_dir(path: str | os.PathLike[str], *, persist: bool = True, create: bool = True) -> Path:
+    value = str(path or "").strip()
+    if not value:
+        raise ValueError("scan data directory is required")
+    resolved = Path(value).expanduser().resolve()
+    if create:
+        resolved.mkdir(parents=True, exist_ok=True)
+    elif not resolved.exists():
+        raise FileNotFoundError(str(resolved))
+    if not resolved.is_dir():
+        raise ValueError("scan data path must be a directory")
+
+    global FAC_DATA_DIR, _BASE_OUTPUT_DIR
+    FAC_DATA_DIR = resolved
+    _BASE_OUTPUT_DIR = resolved
+    _sync_imported_output_dir(resolved)
+    if persist:
+        _persist_fac_data_dir(resolved)
+    return resolved
 
 def copy_recursive_if_not_exists(src: Path, dest: Path):
     """递归拷贝 src 目录下的所有文件和子目录到 dest，但仅当目标文件/目录不存在时。"""
@@ -53,6 +138,10 @@ def copy_recursive_if_not_exists(src: Path, dest: Path):
 def initialize_directories():
     """初始化运行时目录并拷贝只读默认资源。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    FAC_ROOT_DIR.mkdir(parents=True, exist_ok=True)
+    FAC_UNIVERSITY_DIR.mkdir(parents=True, exist_ok=True)
+    FAC_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    FAC_MAIL_DIR.mkdir(parents=True, exist_ok=True)
     _BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -81,6 +170,15 @@ def initialize_directories():
     if src_outputs_dir.exists() and src_outputs_dir.resolve() != _BASE_OUTPUT_DIR.resolve():
         try:
             copy_recursive_if_not_exists(src_outputs_dir, _BASE_OUTPUT_DIR)
+        except Exception:
+            pass
+
+    # 高校库名册单独放到 fac/universities，供主页面和地区筛选读取。
+    src_catalog = src_data_dir / "universities_catalog.json"
+    dest_catalog = FAC_UNIVERSITY_DIR / "universities_catalog.json"
+    if src_catalog.exists() and not dest_catalog.exists():
+        try:
+            shutil.copy2(src_catalog, dest_catalog)
         except Exception:
             pass
 

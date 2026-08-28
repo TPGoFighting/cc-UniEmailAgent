@@ -2,8 +2,6 @@
 
 import { motion } from "framer-motion";
 import { Check, Loader2, Clock } from "lucide-react";
-import type { CollegeStage, StageState } from "@/lib/types";
-
 const itemVariants = {
   initial: { opacity: 0, y: 8 },
   animate: {
@@ -12,6 +10,20 @@ const itemVariants = {
     transition: { duration: 0.25, ease: [0.22, 1, 0.36, 1] as const },
   },
 };
+
+interface CollegeStage {
+  name: string;
+  status: "pending" | "active" | "done";
+  found?: number;
+  extracted?: number;
+  total_pages?: number;
+  valid_email?: number;
+  elapsed_ms?: number;
+}
+
+interface StageState {
+  colleges: CollegeStage[];
+}
 
 interface CrawlProgressProps {
   stages: StageState | undefined;

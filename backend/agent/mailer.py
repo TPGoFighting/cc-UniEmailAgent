@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import json
 import re
 import smtplib
 import ssl
@@ -18,10 +19,15 @@ from cryptography.fernet import Fernet
 import base64
 import os
 
+from agent.paths import FAC_MAIL_DIR
 from constants import EMAIL_RE
 
 VARIABLE_RE = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 HIGH_VOLUME_THRESHOLD = 50
+MAIL_JOBS_DIR = FAC_MAIL_DIR / "jobs"
+MAIL_EXPORTS_DIR = FAC_MAIL_DIR / "exports"
+MAIL_JOBS_DIR.mkdir(parents=True, exist_ok=True)
+MAIL_EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 加密密钥：优先使用环境变量 SMTP_ENCRYPTION_KEY（BASE64 编码的 32 字节密钥），
 # 否则使用派生固定密钥（进程级）—— 已有 1h TTL，密码不会跨重启持久化。
@@ -100,6 +106,27 @@ send_jobs: dict[str, SendJob] = {}
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
+def _job_payload(job: SendJob) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "status": job.status,
+        "createdAt": job.created_at,
+        "updatedAt": job.updated_at,
+        "totals": job.totals,
+        "logs": job.logs,
+        "error": job.error,
+    }
+
+
+def _persist_job(job: SendJob) -> None:
+    MAIL_JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    path = MAIL_JOBS_DIR / f"{job.id}.json"
+    tmp = path.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(_job_payload(job), f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def is_valid_email(email: str) -> bool:
@@ -277,6 +304,7 @@ def create_send_job(
 
     job = SendJob(id=str(uuid.uuid4()))
     send_jobs[job.id] = job
+    _persist_job(job)
     asyncio.create_task(_run_send_job(job.id, candidate_rows, subject_template, body_template, session, settings))
     return {"jobId": job.id, "sendableCount": sendable_count}
 
@@ -333,6 +361,7 @@ async def _run_send_job(job_id: str, rows: list[dict[str, Any]], subject_templat
     finally:
         job.totals["pending"] = 0
         job.updated_at = _now_iso()
+        _persist_job(job)
 
 
 def _complete_log(job: SendJob, log: dict[str, Any], status: str, reason: str) -> None:
@@ -342,21 +371,21 @@ def _complete_log(job: SendJob, log: dict[str, Any], status: str, reason: str) -
     job.totals["pending"] = max(0, job.totals["pending"] - 1)
     job.totals[status] = job.totals.get(status, 0) + 1
     job.updated_at = _now_iso()
+    _persist_job(job)
 
 
 def get_send_job(job_id: str) -> dict[str, Any] | None:
     job = send_jobs.get(job_id)
     if not job:
+        path = MAIL_JOBS_DIR / f"{job_id}.json"
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError):
+                return None
         return None
-    return {
-        "id": job.id,
-        "status": job.status,
-        "createdAt": job.created_at,
-        "updatedAt": job.updated_at,
-        "totals": job.totals,
-        "logs": job.logs,
-        "error": job.error,
-    }
+    return _job_payload(job)
 
 
 def export_send_job(job_id: str, fmt: str = "csv") -> tuple[str, bytes, str]:

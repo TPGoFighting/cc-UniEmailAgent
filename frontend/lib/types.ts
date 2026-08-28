@@ -1,4 +1,8 @@
-export type MessageRole = "user" | "agent" | "text" | "progress" | "download" | "log" | "file";
+// ═══════════════════════════════════════════════════════════════
+// 消息系统 — 精简为 4 种角色
+// ═══════════════════════════════════════════════════════════════
+
+export type MessageRole = "user" | "agent" | "log" | "download" | "activity" | "worker_progress";
 
 export interface Message {
   id: string;
@@ -7,10 +11,7 @@ export interface Message {
   timestamp?: string;
   filename?: string;
   url?: string;
-  filepath?: string;
   isStreaming?: boolean;
-  step?: number;
-  total?: number;
 }
 
 export type TaskStatus = "completed" | "failed" | "running" | "stopped";
@@ -24,77 +25,82 @@ export interface Task {
   pinned?: boolean;
 }
 
-export type ComposerState = "idle" | "connecting" | "streaming" | "completed" | "stopped" | "error";
+export type ComposerState =
+  | "idle"
+  | "connecting"
+  | "streaming"
+  | "completed"
+  | "stopped"
+  | "error";
 
-export type IntentType = "simple_query" | "new_crawl" | "incremental";
+// ═══════════════════════════════════════════════════════════════
+// 活动事件系统 — Agent 实时活动流
+// ═══════════════════════════════════════════════════════════════
 
-export interface IntentResult {
-  is_crawl: boolean;
-  intent: IntentType;
-  university: string;
-  departments: string[];
-  reason: string;
+export type AgentActivityType = "thinking" | "executing" | "executed";
+
+export interface AgentActivity {
+  type: AgentActivityType;
+  tool?: string;
+  input?: Record<string, unknown>;
+  summary?: string;
+  reflection?: {
+    evaluation?: string;
+    memory?: string;
+    next_goal?: string;
+  };
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Worker 进度事件
+// ═══════════════════════════════════════════════════════════════
+
+export interface WorkerProgress {
+  name: string;
+  status: "pending" | "running" | "done" | "error";
+  found?: number;
+  emails?: number;
+  error?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WebSocket 协议 — 扩展后的事件类型
+// ═══════════════════════════════════════════════════════════════
 
 export type WSEvent =
-  | { type: "progress"; message: string; step: number; total: number; timestamp: string }
-  | { type: "download"; message: string; filename: string; url: string; timestamp: string }
-  | { type: "file"; message: string; filename: string; filepath: string; timestamp: string }
-  | { type: "log"; message: string; timestamp: string }
-  | { type: "agent"; message: string; timestamp: string }
   | { type: "text"; message: string; timestamp: string }
+  | { type: "log"; message: string; timestamp: string }
+  | { type: "download"; message: string; filename: string; url: string; timestamp: string }
   | { type: "done"; message?: string; timestamp?: string }
   | { type: "error"; message: string }
-  | { type: "stage_start"; stage: string; college: string; college_index: number; college_total: number }
-  | { type: "stage_progress"; stage: string; phase: "listing" | "extracting" | "done"; found?: number; extracted?: number; total_pages?: number }
-  | { type: "stage_done"; stage: string; college: string; found: number; valid_email: number; elapsed_ms: number }
-  // Phase 1: New WS message types
-  | { type: "stage"; stage: number; stage_name: string; progress_pct: number; timestamp: string }
-  | { type: "stats"; teachers_found: number; emails_extracted: number; departments_done: number; department_names: string[]; timestamp: string }
-  | { type: "summary"; university: string; total_teachers: number; total_emails: number; duration: string; files: Array<{ filename: string; url: string }>; timestamp: string }
-  | { type: "error_user"; message: string; severity: "warning" | "error"; timestamp: string }
-  // 质量评估 + 追踪
-  | { type: "eval"; message: string; quality_score: number; passed: boolean; warnings: string[]; email_rate: number; colleges_found: string[]; timestamp: string }
-  | { type: "trace"; run_id: string; trace_url: string; timestamp: string };
-
-export interface StageState {
-  colleges: CollegeStage[];
-}
-
-export interface CollegeStage {
-  name: string;
-  status: "pending" | "active" | "done";
-  found?: number;
-  extracted?: number;
-  total_pages?: number;
-  valid_email?: number;
-  elapsed_ms?: number;
-}
-
-export interface CollegeStageHandler {
-  onStageStart: (stage: string, college: string, collegeIndex: number, collegeTotal: number) => void;
-  onStageProgress: (stage: string, phase: string, found?: number, extracted?: number, totalPages?: number) => void;
-  onStageDone: (stage: string, college: string, found: number, validEmail: number, elapsedMs: number) => void;
-}
+  | { type: "activity"; activity: AgentActivity; timestamp: string }
+  | { type: "worker_progress"; worker_progress: WorkerProgress; timestamp: string };
 
 export interface WSEventHandlers {
   onLog: (msg: string, timestamp: string) => void;
   onText: (msg: string, timestamp: string) => void;
-  onProgress: (msg: string, step: number, total: number, timestamp: string) => void;
   onDownload: (msg: string, filename: string, url: string, timestamp: string) => void;
-  onFile: (msg: string, filename: string, filepath: string, timestamp: string) => void;
   onDone: (message?: string, timestamp?: string) => void;
   onError: (msg: string) => void;
+  onActivity: (activity: AgentActivity, timestamp: string) => void;
+  onWorkerProgress: (progress: WorkerProgress, timestamp: string) => void;
   onClose: () => void;
-  stageHandlers?: CollegeStageHandler;
-  // Phase 2: New WS event handlers
-  onCrawlStage?: (stage: number, stageName: string, progressPct: number, timestamp: string) => void;
-  onCrawlStats?: (teachersFound: number, emailsExtracted: number, departmentsDone: number, departmentNames: string[], timestamp: string) => void;
-  onCrawlSummary?: (university: string, totalTeachers: number, totalEmails: number, duration: string, files: Array<{ filename: string; url: string }>, timestamp: string) => void;
-  onErrorUser?: (message: string, severity: "warning" | "error", timestamp: string) => void;
-  onEval?: (data: QualityEvalData) => void;
-  onTrace?: (traceUrl: string) => void;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 并行爬取状态（dispatch_workers 工具）
+// ═══════════════════════════════════════════════════════════════
+
+export interface ParallelCrawlState {
+  university: string;
+  total_workers: number;
+  workers: WorkerProgress[];
+  started_at: string;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 高校库类型（不变）
+// ═══════════════════════════════════════════════════════════════
 
 export interface University {
   name: string;
@@ -122,6 +128,10 @@ export interface UniversityGroup {
   cities: Array<{ city: string; count: number; universities: University[] }>;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 任务摘要 / 高校产出（不变）
+// ═══════════════════════════════════════════════════════════════
+
 export interface TaskSummary {
   task_id: string;
   status: string;
@@ -146,42 +156,29 @@ export interface UniversityRecord {
   is_best?: boolean;
 }
 
-// Phase 2: Crawl UI state types
-export interface CrawlStageState {
-  stage: number;
-  stage_name: string;
-  progress_pct: number;
-  timestamp: string;
-}
-
-export interface CrawlStatsData {
-  teachers_found: number;
-  emails_extracted: number;
-  departments_done: number;
-  department_names: string[];
-  timestamp: string;
-}
-
-export interface CrawlSummaryData {
-  university: string;
-  total_teachers: number;
-  total_emails: number;
-  duration: string;
-  files: Array<{ filename: string; url: string }>;
-  timestamp: string;
-}
-
-export interface ErrorUserData {
-  message: string;
-  severity: "warning" | "error";
-  timestamp: string;
-}
+// ═══════════════════════════════════════════════════════════════
+// 质量评估（不变）
+// ═══════════════════════════════════════════════════════════════
 
 export interface QualityEvalData {
   quality_score: number;
   passed: boolean;
   warnings: string[];
-  email_rate: number;       // 0-1
+  email_rate: number;
   colleges_found: string[];
   timestamp: string;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 意图分类（后端 DirectorAgent 内部处理，前端仅保留引用）
+// ═══════════════════════════════════════════════════════════════
+
+export type IntentType = "simple_query" | "new_crawl" | "incremental";
+
+export interface IntentResult {
+  is_crawl: boolean;
+  intent: IntentType;
+  university: string;
+  departments: string[];
+  reason: string;
 }

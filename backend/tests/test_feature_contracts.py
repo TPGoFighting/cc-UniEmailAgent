@@ -17,7 +17,9 @@ from agent.universities import (
     UNIVERSITY_985,
     UNIVERSITY_211,
     build_university_response,
+    get_university_records,
     parse_table_file,
+    resolve_table_path,
 )
 
 
@@ -49,6 +51,84 @@ class UniversityCatalogTests(unittest.TestCase):
         self.assertEqual(table["total"], 2)
         self.assertEqual(table["valid_email_count"], 1)
 
+    def test_university_response_exposes_fac_storage(self):
+        from agent.paths import FAC_DATA_DIR, FAC_MAIL_DIR, FAC_ROOT_DIR, FAC_UNIVERSITY_DIR
+
+        response = build_university_response(q="南京大学")
+        storage = response["storage"]
+        self.assertEqual(Path(storage["root"]), FAC_ROOT_DIR)
+        self.assertEqual(Path(storage["data_dir"]), FAC_DATA_DIR)
+        self.assertEqual(Path(storage["universities_dir"]), FAC_UNIVERSITY_DIR)
+        self.assertEqual(Path(storage["mail_dir"]), FAC_MAIL_DIR)
+
+    def test_nested_local_data_record_round_trips_to_table_path(self):
+        import agent.paths as paths
+        import agent.universities as universities
+
+        old_base = paths.get_base_output_dir()
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            nested = base / "custom_source" / "2026"
+            nested.mkdir(parents=True)
+            table_path = nested / "南京大学_教师邮箱.csv"
+            table_path.write_text(
+                "序号,姓名,邮箱,学院\n1,张三,zhang@nju.edu.cn,计算机学院\n",
+                encoding="utf-8-sig",
+            )
+
+            try:
+                universities.set_scan_data_dir(str(base), persist=False)
+                records = get_university_records("南京大学")["records"]
+                self.assertEqual(records[0]["task_id"], "custom_source/2026")
+                self.assertEqual(resolve_table_path(records[0]["task_id"], records[0]["filename"]), table_path.resolve())
+            finally:
+                universities.set_scan_data_dir(str(old_base), persist=False)
+
+    def test_custom_scan_directory_drives_matching_and_table_resolution(self):
+        import agent.paths as paths
+        import agent.universities as universities
+
+        original = paths.get_base_output_dir()
+        with tempfile.TemporaryDirectory() as tmp:
+            custom_dir = Path(tmp) / "custom-data"
+            nested = custom_dir / "manual" / "batch"
+            nested.mkdir(parents=True)
+            table_path = nested / "南京大学_教师邮箱.csv"
+            table_path.write_text(
+                "序号,姓名,邮箱,学院\n1,张三,zhang@nju.edu.cn,计算机学院\n",
+                encoding="utf-8-sig",
+            )
+
+            try:
+                universities.set_scan_data_dir(str(custom_dir), persist=False)
+                response = build_university_response(q="南京大学")
+                records = get_university_records("南京大学")["records"]
+
+                self.assertEqual(Path(response["storage"]["data_dir"]), custom_dir.resolve())
+                self.assertEqual(records[0]["task_id"], "manual/batch")
+                self.assertEqual(
+                    resolve_table_path(records[0]["task_id"], records[0]["filename"]),
+                    table_path.resolve(),
+                )
+            finally:
+                universities.set_scan_data_dir(str(original), persist=False)
+
+    def test_exporter_writes_to_custom_scan_directory(self):
+        import agent.paths as paths
+        from agent.exporter import export_csv
+
+        original = paths.get_base_output_dir()
+        with tempfile.TemporaryDirectory() as tmp:
+            custom_dir = Path(tmp) / "exports"
+            try:
+                paths.set_fac_data_dir(str(custom_dir), persist=False)
+                exported = export_csv([{"name": "张三", "email": "zhang@example.edu.cn"}], "测试大学", "task-1")
+
+                self.assertTrue(exported.resolve().is_relative_to(custom_dir.resolve()))
+                self.assertTrue(exported.exists())
+            finally:
+                paths.set_fac_data_dir(str(original), persist=False)
+
 
 class MailerTests(unittest.TestCase):
     def test_smtp_provider_detection(self):
@@ -74,11 +154,18 @@ class MailerTests(unittest.TestCase):
         self.assertTrue(is_valid_email("teacher@example.edu.cn"))
         self.assertFalse(is_valid_email("teacher at example.edu.cn"))
 
+    def test_mail_runtime_artifacts_live_under_fac_mail_dir(self):
+        from agent.mailer import MAIL_JOBS_DIR
+        from agent.paths import FAC_MAIL_DIR
+
+        self.assertEqual(MAIL_JOBS_DIR.parent, FAC_MAIL_DIR)
+
 
 class AgentProcessTests(unittest.TestCase):
     def test_agent_process_registration_and_termination(self):
-        from agent.claude_agent import ClaudeAgent
-        agent = ClaudeAgent()
+        # DirectorAgent 不需要进程注册/终止，但验证接口兼容
+        from agent_framework.adapter import DirectorAgentAdapter
+        agent = DirectorAgentAdapter()
 
         class DummyProcess:
             def __init__(self):

@@ -40,12 +40,17 @@ def load_config() -> dict:
 
 def save_config(config: dict) -> None:
     """保存配置到 config.json。"""
+    data_to_save = {k: config.get(k, _DEFAULT_CONFIG[k]) for k in _DEFAULT_CONFIG}
     try:
-        data_to_save = {k: config.get(k, _DEFAULT_CONFIG[k]) for k in _DEFAULT_CONFIG}
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
+        with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp_file, CONFIG_FILE)
     except Exception as e:
         logger.error(f"保存配置文件失败: {e}")
+        raise
 
 def get_effective_llm_settings() -> tuple[str, str]:
     """获取实际生效的大模型 API Key 和 Base URL。
@@ -65,55 +70,19 @@ def get_effective_llm_settings() -> tuple[str, str]:
 
 
 def sync_llm_settings_to_environ() -> None:
-    """同步实际生效的大模型 API settings 到 os.environ，供子进程和当前进程调用。
+    """同步实际生效的大模型 API settings 到 os.environ，供当前进程和子进程调用。
 
-    关键设计：
-    - OpenAI 兼容变量 → 给 Python openai SDK（意图识别、问答、数据分析）
-    - Anthropic 兼容变量 → 给 Claude Code CLI 子进程
-    - DeepSeek 有两个 endpoint：
-      * https://api.deepseek.com/v1 — OpenAI 格式（Python openai SDK）
-      * https://api.deepseek.com/anthropic — Anthropic 格式（Claude Code CLI）
-    - 不再清空 ANTHROPIC_API_KEY！之前设成 "" 导致 Claude Code CLI 静默退出无输出
+    DirectorAgent 使用 OpenAI 兼容 API（DeepSeek），只设置必要环境变量。
+    Claude Code CLI 已彻底移除，不再设置 Anthropic 相关变量。
     """
     try:
         api_key, base_url = get_effective_llm_settings()
         if api_key:
-            # === OpenAI 兼容（Python openai SDK：意图识别、问答、数据分析）===
             os.environ["DEEPSEEK_API_KEY"] = api_key
             os.environ["DEEPSEEK_API_BASE"] = base_url
             os.environ["OPENAI_API_KEY"] = api_key
             os.environ["OPENAI_BASE_URL"] = base_url
 
-            # === Anthropic 兼容（Claude Code CLI 子进程）===
-            # 如果已存在 ANTHROPIC_BASE_URL（如用户 settings.json 配置的），尊重它
-            # 否则：DeepSeek 用 Anthropic 兼容端点，其他 provider 复用 base_url
-            anthropic_base = os.environ.get("ANTHROPIC_BASE_URL")
-            if not anthropic_base:
-                if "deepseek" in (base_url or "").lower():
-                    anthropic_base = "https://api.deepseek.com/anthropic"
-                else:
-                    anthropic_base = base_url
-
-            os.environ["ANTHROPIC_BASE_URL"] = anthropic_base
-            os.environ["ANTHROPIC_AUTH_TOKEN"] = api_key
-
-            # ★★★ 关键修复：之前设为 "" 导致 Claude Code CLI 静默失败无输出 ★★★
-            # Claude Code CLI 子进程读 ANTHROPIC_API_KEY 做认证，空字符串 = 无认证
-            os.environ["ANTHROPIC_API_KEY"] = api_key
-
-            # 告诉 Claude Code CLI 用 DeepSeek 的哪个模型
-            if "deepseek" in anthropic_base.lower():
-                os.environ.setdefault("ANTHROPIC_MODEL", "deepseek-chat")
-                os.environ.setdefault("ANTHROPIC_DEFAULT_SONNET_MODEL", "deepseek-chat")
-                os.environ.setdefault("ANTHROPIC_DEFAULT_HAIKU_MODEL", "deepseek-chat")
-                os.environ.setdefault("ANTHROPIC_DEFAULT_OPUS_MODEL", "deepseek-chat")
-                os.environ.setdefault("ANTHROPIC_REASONING_MODEL", "deepseek-reasoner")
-
-            # ★ CLAUDE_CODE_SIMPLE=1 强制 Claude Code CLI 只用环境变量 ANTHROPIC_API_KEY
-            #   不走 settings.json / OAuth / keychain，避免全新安装的机器因缺少配置而静默失败
-            os.environ["CLAUDE_CODE_SIMPLE"] = "1"
-
-            logger.info("已成功同步 UI 设置中的 API Key 到当前进程及子进程的环境变量")
+            logger.info("已成功同步 API Key 到当前进程及子进程的环境变量")
     except Exception as e:
         logger.warning(f"同步大模型设置到环境变量失败: {e}")
-

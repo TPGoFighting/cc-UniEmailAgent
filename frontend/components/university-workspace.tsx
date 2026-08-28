@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, type CSSProperties } from "react";
 import { api } from "@/services/api";
 import { useUIStore } from "@/stores/ui-store";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, Pencil, Plus, X, Check, Loader2, Trash2, Ellipsis, RefreshCw, Globe, ChevronDown } from "lucide-react";
+import { BookOpenText, Download, Mail, PanelLeft, Pencil, Plus, X, Check, Loader2, Trash2, Ellipsis, RefreshCw, Globe, ChevronDown, FolderOpen } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,24 +29,48 @@ const EXPORT_FORMATS = [
   { key: "docx", label: "DOCX" },
 ];
 
+type UniversityWorkspaceMode = "sheet" | "page";
+
+interface UniversityWorkspaceProps {
+  mode?: UniversityWorkspaceMode;
+}
+
+interface StorageInfo {
+  root?: string;
+  data_dir?: string;
+  universities_dir?: string;
+  mail_dir?: string;
+  catalog_file?: string;
+}
+
 function coverageColor(ratio: number): string {
   if (ratio >= 0.7) return 'hsl(142, 76%, 36%)';
   if (ratio >= 0.4) return 'hsl(38, 92%, 50%)';
   return 'hsl(0, 84%, 60%)';
 }
 
-export function UniversityWorkspace() {
+export function UniversityWorkspace({ mode = "sheet" }: UniversityWorkspaceProps) {
+  const isPage = mode === "page";
   const open = useUIStore((s) => s.universityOpen);
   const setOpen = useUIStore((s) => s.setUniversityOpen);
+  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
+  const setMailOpen = useUIStore((s) => s.setMailOpen);
   const setPendingInput = useUIStore((s) => s.setPendingInput);
   const highlightUniversity = useUIStore((s) => s.highlightUniversity);
   const setHighlightUniversity = useUIStore((s) => s.setHighlightUniversity);
+  const active = isPage || open;
   const [query, setQuery] = useState("");
   const [province, setProvince] = useState("");
   const [city, setCity] = useState("");
   const [tier, setTier] = useState<(typeof tiers)[number]>("全部");
   const [groups, setGroups] = useState<UniversityGroup[]>([]);
   const [provinces, setProvinces] = useState<string[]>([]);
+  const [storage, setStorage] = useState<StorageInfo | null>(null);
+  const [scanDirInput, setScanDirInput] = useState("");
+  const [scanDirSaving, setScanDirSaving] = useState(false);
+  const [scanDirError, setScanDirError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [recordsRefreshKey, setRecordsRefreshKey] = useState(0);
   const [selected, setSelected] = useState<University | null>(null);
   const [onlyWithData, setOnlyWithData] = useState(false);
   const [displayLimit, setDisplayLimit] = useState(100);
@@ -152,32 +176,27 @@ export function UniversityWorkspace() {
 
   // 加载高校列表
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     api.getUniversities({ province, tier, q: query }).then((data: any) => {
       setGroups(data.groups || []);
       setProvinces(data.provinces || []);
+      setStorage(data.storage || null);
       const first = data.groups?.[0]?.cities?.[0]?.universities?.[0] || null;
       if (first && !selected) setSelected(first);
     }).catch(() => {});
-  }, [open, province, tier, query]);
+  }, [active, province, tier, query, refreshKey]);
 
-  // 高亮跳转：当 highlightUniversity 设置时，选中对应大学
   useEffect(() => {
-    if (!highlightUniversity || !open) return;
-    const target = flatUniversities.find((u) => u.name === highlightUniversity);
-    if (target) {
-      setSelected(target);
-      // 清除高亮标记
-      const timer = setTimeout(() => setHighlightUniversity(null), 2000);
-      return () => clearTimeout(timer);
+    if (storage?.data_dir) {
+      setScanDirInput(storage.data_dir);
     }
-  }, [highlightUniversity, open]);
+  }, [storage?.data_dir]);
 
   // 快捷操作：从高校库跳转到聊天
   const handleQuickCrawl = (uniName: string, mode: "incremental" | "full") => {
     const prefix = mode === "incremental" ? "补充" : "重新全量抓取";
     setPendingInput(`${prefix}${uniName}教师邮箱`);
-    setOpen(false);
+    if (!isPage) setOpen(false);
   };
 
   // 加载高校最佳文件记录（自动选择数据最多的表格）
@@ -202,7 +221,7 @@ export function UniversityWorkspace() {
       setFileDate("");
       setPage(1);
     }).catch(() => {});
-  }, [selected]);
+  }, [selected, recordsRefreshKey]);
 
   // 加载表格数据
   useEffect(() => {
@@ -249,6 +268,17 @@ export function UniversityWorkspace() {
     if (onlyWithData) list = list.filter((u) => u.has_data);
     return list;
   }, [groups, city, onlyWithData]);
+
+  // 高亮跳转：当 highlightUniversity 设置时，选中对应大学
+  useEffect(() => {
+    if (!highlightUniversity || !active) return;
+    const target = flatUniversities.find((u) => u.name === highlightUniversity);
+    if (target) {
+      setSelected(target);
+      const timer = setTimeout(() => setHighlightUniversity(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightUniversity, active, flatUniversities, setHighlightUniversity]);
 
   const filteredRecords = useMemo(() => {
     return records.filter((rec) => {
@@ -361,18 +391,113 @@ export function UniversityWorkspace() {
     });
   };
 
-  return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" className="w-[min(1100px,96vw)] max-w-none sm:max-w-none data-[side=right]:sm:max-w-none gap-0 p-0 overflow-hidden" style={{overflow: 'hidden'}}>
-        <div ref={sheetContentRef} className="flex h-full flex-col overflow-hidden">
-          <SheetHeader className="border-b px-5 py-4">
-            <SheetTitle>高校库</SheetTitle>
-            <SheetDescription>按省市、985/211/双一流/普通本科筛选，查看各高校已抓取的教师邮箱数据，支持导出多种格式。</SheetDescription>
-          </SheetHeader>
+  const handleScanDirSave = async () => {
+    const nextDir = scanDirInput.trim();
+    if (!nextDir) {
+      setScanDirError("请输入扫描目录");
+      return;
+    }
+    setScanDirSaving(true);
+    setScanDirError(null);
+    try {
+      const res = await api.updateUniversityStorage(nextDir);
+      setStorage(res.storage || null);
+      setScanDirInput(res.storage?.data_dir || nextDir);
+      setSelected(null);
+      setRecords([]);
+      setRecordIndex(0);
+      setTable({ columns: [], rows: [], total: 0 });
+      setRefreshKey((value) => value + 1);
+      setRecordsRefreshKey((value) => value + 1);
+    } catch {
+      setScanDirError("目录不可用或没有权限");
+    } finally {
+      setScanDirSaving(false);
+    }
+  };
 
-          <div className="flex flex-1 min-h-0">
+  const libraryNavStyle = (
+    isPage
+      ? { "--library-nav-width": `${leftWidth}px` }
+      : { width: `${leftWidth}px` }
+  ) as CSSProperties;
+
+  const workspaceHeader = isPage ? (
+    <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border/30 bg-background/85 px-4 py-3 backdrop-blur-md sm:px-5">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="lg:hidden hover:bg-primary/10 hover:text-primary"
+        onClick={() => setSidebarOpen(true)}
+        aria-label="打开侧边栏"
+      >
+        <PanelLeft className="size-4" />
+      </Button>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+          <BookOpenText className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-foreground">高校库</h2>
+          <p className="truncate text-xs text-muted-foreground">本地数据匹配与地区筛选</p>
+        </div>
+      </div>
+      <form
+        className="order-last flex w-full flex-col gap-1 sm:order-none sm:w-auto"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleScanDirSave();
+        }}
+      >
+        <div className="flex min-w-0 items-center gap-2 rounded-xl border border-border/50 bg-background/70 px-2 py-1">
+          <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+          <span className="shrink-0 text-xs text-muted-foreground">扫描目录</span>
+          <Input
+            value={scanDirInput}
+            onChange={(event) => setScanDirInput(event.target.value)}
+            placeholder={storage?.data_dir || "D:\\Work\\fac\\data"}
+            className="h-8 min-w-0 border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0 sm:w-[min(44vw,520px)]"
+            aria-label="扫描目录"
+          />
+          <Button
+            type="submit"
+            size="sm"
+            className="h-8 gap-1.5 rounded-lg px-2.5"
+            disabled={scanDirSaving || !scanDirInput.trim()}
+          >
+            {scanDirSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+            应用
+          </Button>
+        </div>
+        {scanDirError ? <p className="px-2 text-xs text-destructive">{scanDirError}</p> : null}
+      </form>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2 rounded-xl border-border/50 bg-background/60 text-muted-foreground hover:border-primary/30 hover:bg-primary/[0.04] hover:text-primary"
+        onClick={() => setMailOpen(true)}
+      >
+        <Mail className="size-4" />
+        邮件发送
+      </Button>
+    </header>
+  ) : (
+    <SheetHeader className="border-b px-5 py-4">
+      <SheetTitle>高校库</SheetTitle>
+      <SheetDescription>按省市、985/211/双一流/普通本科筛选，查看各高校已抓取的教师邮箱数据，支持导出多种格式。</SheetDescription>
+    </SheetHeader>
+  );
+
+  const workspaceContent = (
+        <div ref={sheetContentRef} className="flex h-full flex-col overflow-hidden">
+          {workspaceHeader}
+
+          <div className="flex flex-1 min-h-0 flex-col md:flex-row">
             {/* ── 左侧：高校导航 ── */}
-            <div style={{ width: `${leftWidth}px` }} className="shrink-0 flex flex-col h-full min-h-0 overflow-hidden">
+            <div
+              style={libraryNavStyle}
+              className={`shrink-0 flex flex-col min-h-0 overflow-hidden ${isPage ? "h-[48%] w-full md:h-full md:w-[var(--library-nav-width)]" : "h-full"}`}
+            >
               <div className="p-4 pb-0 space-y-3">
                 <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索学校" />
                 <div className="grid grid-cols-2 gap-2">
@@ -461,7 +586,7 @@ export function UniversityWorkspace() {
 
             {/* ── 拖拽手柄 ── */}
             <div
-              className="relative w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-primary/10 active:bg-primary/20 transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border"
+              className={`relative w-1.5 shrink-0 cursor-col-resize bg-transparent hover:bg-primary/10 active:bg-primary/20 transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border ${isPage ? "hidden md:block" : ""}`}
               onMouseDown={() => setDragging(true)}
             />
 
@@ -480,7 +605,7 @@ export function UniversityWorkspace() {
                         <div className="text-xs text-muted-foreground mt-0.5">{selected.province} · {selected.city} · {selected.tags.join(" / ")}</div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-4 gap-3 text-sm">
+                    <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                       <div className="rounded-lg border p-3"><div className="text-muted-foreground text-xs">文件</div><div className="mt-1 font-semibold">{records.length}</div></div>
                       <div className="rounded-lg border p-3"><div className="text-muted-foreground text-xs">表格</div><div className="mt-1 font-semibold">{selectedRecord ? 1 : 0}</div></div>
                       <div className="rounded-lg border p-3"><div className="text-muted-foreground text-xs">行数</div><div className="mt-1 font-semibold">{selectedRecord?.row_count || 0}</div></div>
@@ -740,6 +865,20 @@ export function UniversityWorkspace() {
             </div>
           </div>
         </div>
+  );
+
+  if (isPage) {
+    return (
+      <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        {workspaceContent}
+      </main>
+    );
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetContent side="right" className="w-[min(1100px,96vw)] max-w-none sm:max-w-none data-[side=right]:sm:max-w-none gap-0 p-0 overflow-hidden" style={{overflow: 'hidden'}}>
+        {workspaceContent}
       </SheetContent>
     </Sheet>
   );

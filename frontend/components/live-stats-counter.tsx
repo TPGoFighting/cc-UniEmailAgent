@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Users, Mail, Building2, Sparkles } from "lucide-react";
-import type { CrawlStatsData } from "@/lib/types";
+type CrawlStatsData = { teachers_found: number; emails_extracted: number; departments_done: number; department_names: string[]; timestamp: string; };
 
 const statVariants = {
   initial: { opacity: 0, y: 6 },

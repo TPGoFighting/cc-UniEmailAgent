@@ -3,16 +3,11 @@
 import { Component, type ReactNode } from "react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Sidebar } from "@/components/sidebar";
-import { ChatArea } from "@/components/chat-area";
-import { EditMessageDialog } from "@/components/edit-message-dialog";
 import { UniversityWorkspace } from "@/components/university-workspace";
 import { MailWorkspace } from "@/components/mail-workspace";
 import { UndoToast } from "@/components/undo-toast";
-import { SettingsPanel } from "@/components/settings-panel";
-import { AgentDock } from "@/components/agent-dock";
-import { OnboardingTour } from "@/components/onboarding-tour";
-import { useChatStore } from "@/stores/chat-store";
 import { useUIStore } from "@/stores/ui-store";
+import { motion, AnimatePresence } from "framer-motion";
 
 // ── Error Boundary ──
 class ErrorBoundary extends Component<
@@ -73,15 +68,21 @@ export default function HomePage() {
             </SheetContent>
           </Sheet>
 
-          <ChatArea />
+          <AnimatePresence mode="wait">
+            <motion.div
+              key="university-library"
+              initial={{ opacity: 0, y: 15, filter: "blur(4px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: -15, filter: "blur(4px)" }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="flex-1 min-h-0 overflow-hidden flex"
+            >
+              <UniversityWorkspace mode="page" />
+            </motion.div>
+          </AnimatePresence>
         </div>
-        <EditMessageDialog />
-        <UniversityWorkspace />
         <MailWorkspace />
-        <SettingsPanel />
-        <AgentDock />
         <UndoToast />
-        <OnboardingTour />
       </div>
     </ErrorBoundary>
   );

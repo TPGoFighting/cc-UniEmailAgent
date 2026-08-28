@@ -1,8 +1,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import type { CrawlStageState } from "@/lib/types";
-
 const STAGE_LABELS: Record<number, string> = {
   1: "正在浏览高校官网...",
   2: "正在搜索学院页面...",
@@ -12,7 +10,7 @@ const STAGE_LABELS: Record<number, string> = {
 };
 
 interface AgentActivityCardProps {
-  stage: CrawlStageState | undefined;
+  stage: { stage: number; stage_name: string; progress_pct: number; timestamp: string } | undefined;
   university?: string;
 }
 

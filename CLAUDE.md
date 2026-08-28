@@ -70,6 +70,24 @@ backend/
 ├── tests/
 │   └── test_feature_contracts.py  功能契约测试
 │
+├── agent_framework/            ★ 自定义 AI Agent 框架（替代 CLI 子进程）
+│   ├── __init__.py             包入口
+│   ├── tool.py                 Tool 基类 + ToolRegistry
+│   ├── director.py             Director Agent（主推理循环）
+│   ├── worker.py               Worker Agent（并行子任务）
+│   ├── provider.py             LLM Provider（DeepSeek/OpenAI）
+│   ├── provider_anthropic.py   Anthropic Provider
+│   ├── adapter.py              适配器层（兼容原有接口）
+│   ├── context.py              上下文管理（token 预估/剪裁）
+│   └── tools/                  工具实现（9 个内置工具）
+│       ├── think.py            深度思考
+│       ├── web_fetch.py        网页抓取
+│       ├── web_search.py       网络搜索
+│       ├── file_read.py        文件读取
+│       ├── file_write.py       文件写入
+│       ├── bash.py             Shell 命令
+│       └── browser.py          浏览器（Playwright）
+│
 └── patches/
     └── UX-design.md            UX 设计改进补丁
 ```

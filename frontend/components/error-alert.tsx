@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, AlertCircle, X, Copy, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import type { ErrorUserData } from "@/lib/types";
+type ErrorUserData = { message: string; severity: "warning" | "error"; timestamp: string; };
 
 const alertVariants = {
   initial: { opacity: 0, x: -8, height: 0 },

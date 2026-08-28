@@ -5,7 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Globe, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { StageStepper } from "@/components/stage-stepper";
 import { LiveStatsCounter } from "@/components/live-stats-counter";
-import type { CrawlStageState, CrawlStatsData } from "@/lib/types";
+// 兼容旧 props 类型
+type CrawlStageLike = { stage: number; stage_name: string; progress_pct: number; timestamp: string; };
+type CrawlStatsData = { teachers_found: number; emails_extracted: number; departments_done: number; department_names: string[]; timestamp: string; };
 
 const panelVariants = {
   initial: { opacity: 0, y: 12 },
@@ -27,7 +29,7 @@ const expandVariants = {
 };
 
 interface CrawlProgressPanelProps {
-  stage: CrawlStageState | undefined;
+  stage: CrawlStageLike | undefined;
   stats: CrawlStatsData | undefined;
   university?: string;
   operationText?: string;

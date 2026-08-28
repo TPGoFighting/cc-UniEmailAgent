@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { BookOpenText, Plus } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchBar } from "@/components/search-bar";
@@ -13,12 +14,11 @@ import { useUIStore } from "@/stores/ui-store";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import type { Task } from "@/lib/types";
 
-type FilterKey = "all" | "running" | "hasData" | "failed";
+type FilterKey = "all" | "running" | "failed";
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "running", label: "运行中" },
-  { key: "hasData", label: "有数据" },
   { key: "failed", label: "失败" },
 ];
 
@@ -39,13 +39,6 @@ function timeGroup(dateStr: string): string {
   return "更早";
 }
 
-/** 检查任务是否有数据产出 */
-function taskHasData(task: Task): boolean {
-  if (task.status !== "completed") return false;
-  if (!task.messages) return false;
-  return task.messages.some((m) => m.role === "download");
-}
-
 const GROUP_LABELS: Record<string, string> = {
   "今天": "今天",
   "昨天": "昨天",
@@ -63,6 +56,9 @@ export function Sidebar() {
   const runningTaskIds = useChatStore((s) => s.runningTaskIds);
   const searchQuery = useUIStore((s) => s.searchQuery);
   const setUniversityOpen = useUIStore((s) => s.setUniversityOpen);
+  
+  const activeTab = useUIStore((s) => s.activeTab);
+  const setActiveTab = useUIStore((s) => s.setActiveTab);
 
   const {
     selectTask,
@@ -106,9 +102,6 @@ export function Sidebar() {
       case "running":
         result = result.filter((t) => runningTaskIds.includes(t.id) || t.status === "running");
         break;
-      case "hasData":
-        result = result.filter((t) => taskHasData(t));
-        break;
       case "failed":
         result = result.filter((t) => t.status === "failed" || t.status === "stopped");
         break;
@@ -147,20 +140,56 @@ export function Sidebar() {
   return (
     <aside className="flex h-full flex-col bg-sidebar bg-sidebar-glow">
       {/* Logo */}
-      <div className="flex items-center px-5 py-5">
-        <img src="/logo.png" alt="UniEmail Agent" className="h-10 object-contain img-blend" />
+      <div className="flex items-center px-5 py-5 border-b border-border/10 mb-3">
+        <div className="flex items-center gap-2">
+          <img src="/logo.png" alt="AI Info Collector" className="size-9 object-contain rounded-xl shadow-lg shadow-primary/10" />
+          <div className="leading-none">
+            <h1 className="text-sm font-bold text-foreground">AI Info Collector</h1>
+            <span className="text-[10px] text-muted-foreground font-medium">智能采集工作台</span>
+          </div>
+        </div>
       </div>
 
+      {/* 导航菜单 */}
+      <div className="px-3 pb-4 space-y-1">
+        {[
+          { id: "collector", label: "高校库", icon: <BookOpenText className="size-4 shrink-0" /> },
+        ].map((tab) => (
+          <div key={tab.id} className="relative">
+            {activeTab === tab.id && (
+              <motion.div
+                layoutId="active-sidebar-pill"
+                className="absolute inset-0 bg-primary/10 border border-primary/20 rounded-xl"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <button
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all relative z-10 ${
+                activeTab === tab.id
+                  ? "text-primary font-semibold"
+                  : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"
+              }`}
+            >
+              {tab.icon}
+              <span className="relative z-20">{tab.label}</span>
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="mx-4 border-t border-border/30 my-2" />
+
       {/* 新建任务 */}
-      <div className="px-4 pb-2">
+      <div className="px-3 pb-2">
         <Button
           variant="ghost"
-          className="w-full justify-start gap-2.5 rounded-xl text-sm font-medium text-muted-foreground transition-all duration-250 hover:-translate-y-[0.5px] hover:bg-primary/10 hover:text-primary"
+          className="w-full justify-start gap-2.5 rounded-xl text-xs font-semibold text-muted-foreground/60 transition-all duration-250 hover:-translate-y-[0.5px] hover:bg-primary/10 hover:text-primary"
           onClick={newTask}
           style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
         >
           <Plus className="size-4" />
-          新建任务
+          新采集会话
         </Button>
       </div>
 

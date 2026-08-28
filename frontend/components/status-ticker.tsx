@@ -29,10 +29,10 @@ export function StatusTicker({ composerState }: StatusTickerProps) {
   // Only show during active task execution
   const isActive = composerState === "connecting" || composerState === "streaming";
 
-  // Extract messages with role "log" or "progress"
+  // Extract messages with role "log"
   const statusMessages = isActive && taskMessages
     ? taskMessages
-        .filter((m) => m.role === "log" || m.role === "progress")
+        .filter((m) => m.role === "log")
         .slice(-3)
     : [];
 

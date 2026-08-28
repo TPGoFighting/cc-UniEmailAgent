@@ -12,11 +12,9 @@ interface UIStore {
   editTarget: EditTarget | null;
   universityOpen: boolean;
   mailOpen: boolean;
-  settingsOpen: boolean;
-  agentDockOpen: boolean;
-  agentDockMode: "kb" | "chat";
   highlightUniversity: string | null;
   pendingInput: string | null;
+  activeTab: "collector";
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
@@ -24,11 +22,9 @@ interface UIStore {
   setEditTarget: (target: EditTarget | null) => void;
   setUniversityOpen: (open: boolean) => void;
   setMailOpen: (open: boolean) => void;
-  setSettingsOpen: (open: boolean) => void;
-  setAgentDockOpen: (open: boolean) => void;
-  setAgentDockMode: (mode: "kb" | "chat") => void;
   setHighlightUniversity: (name: string | null) => void;
   setPendingInput: (text: string | null) => void;
+  setActiveTab: (tab: "collector") => void;
 }
 
 export const useUIStore = create<UIStore>()(
@@ -39,11 +35,9 @@ export const useUIStore = create<UIStore>()(
       editTarget: null,
       universityOpen: false,
       mailOpen: false,
-      settingsOpen: false,
-      agentDockOpen: false,
-      agentDockMode: "kb",
       highlightUniversity: null,
       pendingInput: null,
+      activeTab: "collector",
 
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -51,16 +45,15 @@ export const useUIStore = create<UIStore>()(
       setEditTarget: (target) => set({ editTarget: target }),
       setUniversityOpen: (open) => set({ universityOpen: open }),
       setMailOpen: (open) => set({ mailOpen: open }),
-      setSettingsOpen: (open) => set({ settingsOpen: open }),
-      setAgentDockOpen: (open) => set({ agentDockOpen: open }),
-      setAgentDockMode: (mode) => set({ agentDockMode: mode, agentDockOpen: true }),
       setHighlightUniversity: (name) => set({ highlightUniversity: name }),
       setPendingInput: (text) => set({ pendingInput: text }),
+      setActiveTab: (tab) => set({ activeTab: tab }),
     }),
     {
       name: "uniemail-ui",
       partialize: (state) => ({
         sidebarOpen: state.sidebarOpen,
+        activeTab: state.activeTab,
       }),
     }
   )

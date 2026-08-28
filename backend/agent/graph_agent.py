@@ -1,8 +1,7 @@
-"""GraphAgent — LangGraph 状态机驱动层。
+"""GraphAgent — LangGraph 状态机驱动层（已弃用，请使用 DirectorAgent）。
 
-将 graph_builder 中的 LangGraph 有向图作为状态机引擎，
-在节点间注入 ClaudeAgent 的实时流式执行（爬取阶段），
-对外暴露与 HermesOrchestrator 完全兼容的接口。
+此模块保留仅用于兼容旧任务历史读取。
+新的爬取任务统一走 DirectorAgent 流程。
 """
 
 import asyncio
@@ -12,7 +11,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator
 
-from agent.claude_agent import ClaudeAgent
 from agent.graph_builder import (
     CrawlState,
     plan_node,
@@ -30,16 +28,15 @@ logger = logging.getLogger(__name__)
 
 
 class GraphAgent:
-    """LangGraph 驱动的 Agent — 兼容 HermesOrchestrator 接口。
+    """LangGraph 驱动的 Agent（已弃用，保留接口兼容）。
 
-    职责:
-    - execute(): 按 LangGraph 路由决策逐步执行 plan→crawl→verify→export
-    - execute_query(): 简单问答委托给 ClaudeAgent
-    - stop_task(): 中断正在执行的任务
+    🔸 新任务请使用 DirectorAgent
+    保留此类仅用于旧历史任务的日志回放兼容。
     """
 
     def __init__(self):
-        self._claude = ClaudeAgent()
+        from agent_framework.adapter import DirectorAgentAdapter
+        self._agent = DirectorAgentAdapter()
         self._graph = build_graph()
         self._stopped_tasks: set[str] = set()
 
@@ -49,9 +46,9 @@ class GraphAgent:
     def stop_task(self, task_id: str = "") -> bool:
         """中断指定任务的执行。"""
         self._stopped_tasks.add(task_id)
-        return self._claude.stop_task(task_id)
+        return self._agent.stop_task(task_id)
 
-    # ── 简单问答（委托给 ClaudeAgent） ──
+    # ── 简单问答 ──
 
     async def execute_query(
         self,
@@ -59,8 +56,8 @@ class GraphAgent:
         task_id: str,
         task_output_dir: str = "",
     ) -> AsyncGenerator[dict, None]:
-        """简单问答：直接委托给 ClaudeAgent，不经过爬取状态机。"""
-        async for log in self._claude.execute_query(message, task_id, task_output_dir):
+        """简单问答：委托给 DirectorAgent。"""
+        async for log in self._agent.execute_query(message, task_id, task_output_dir):
             yield log
 
     # ── 爬取编排（LangGraph 驱动） ──

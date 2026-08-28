@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Check, Users, Mail, Clock, Download, FileText, University } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/services/api";
-import type { CrawlSummaryData } from "@/lib/types";
+type CrawlSummaryData = { university: string; total_teachers: number; total_emails: number; duration: string; files: Array<{ filename: string; url: string }>; timestamp: string; };
 
 const cardVariants = {
   initial: { opacity: 0, y: 12 },

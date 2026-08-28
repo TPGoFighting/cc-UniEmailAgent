@@ -60,12 +60,7 @@ class DependencyInstaller:
                 return False
 
         node_ok = _safe_which("node")
-        try:
-            from agent.claude_agent import _resolve_claude_executable
-            claude_ok = bool(_resolve_claude_executable())
-        except Exception as exc:
-            logger.warning(f"[DepInstaller] Claude Code CLI 检测失败: {exc}")
-            claude_ok = False
+        claude_ok = False  # Claude CLI 已彻底移除，不再检测或安装
         hermes_ok = _safe_which("hermes")
         
         playwright_ok = False
@@ -141,43 +136,10 @@ class DependencyInstaller:
                 with self.lock:
                     self.status["node"] = "skipped"
 
-            # 3. 安装 Claude Code CLI
-            # 如果 node 就绪，但 claude 没就绪，执行 npm install
-            if installed["node"]:
-                if not installed["claude_code"]:
-                    self.log("检测到未安装 Claude Code CLI，正在通过 NPM 自动安装...")
-                    with self.lock:
-                        self.status["claude_code"] = "installing"
-                        self.status["current_action"] = "正在安装 Claude Code CLI..."
-                    
-                    cmd = ["npm", "install", "-g", "@anthropic-ai/claude-code", "--yes"]
-                    self.log(f"运行命令: {' '.join(cmd)}")
-                    try:
-                        # 运行 npm 安装，使用 shell=True 确保 windows npm 识别正常
-                        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-                        if proc.returncode == 0:
-                            self.log("Claude Code CLI 安装成功！")
-                            with self.lock:
-                                self.status["claude_code"] = "installed"
-                            # 更新当前 PATH
-                            from agent.paths import fix_windows_path
-                            fix_windows_path()
-                        else:
-                            self.log(f"Claude Code CLI 安装失败。退出码: {proc.returncode}。错误: {proc.stderr}")
-                            with self.lock:
-                                self.status["claude_code"] = "failed"
-                    except Exception as e:
-                        self.log(f"Claude Code CLI 安装过程异常: {e}")
-                        with self.lock:
-                            self.status["claude_code"] = "failed"
-                else:
-                    self.log("Claude Code CLI 已就绪，跳过安装。")
-                    with self.lock:
-                        self.status["claude_code"] = "skipped"
-            else:
-                self.log("未检测到 Node.js，无法配置 Claude Code CLI。")
-                with self.lock:
-                    self.status["claude_code"] = "failed"
+            # 3. Claude Code CLI — 已彻底移除，不再安装
+            with self.lock:
+                self.status["claude_code"] = "removed"
+            self.log("Claude Code CLI 不再使用（已移除）。")
 
             # 4. 安装 Hermes CLI
             if not installed["hermes"]:

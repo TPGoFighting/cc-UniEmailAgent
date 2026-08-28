@@ -7,26 +7,26 @@ import type { Task } from "@/lib/types";
 const suggestedPrompts = [
   {
     icon: Globe,
-    text: "抓取南京大学计算机学院教师邮箱",
+    text: "抓取小红书关于‘AI大模型’的热门笔记与点赞数",
   },
   {
     icon: FileSpreadsheet,
-    text: "导出北京大学教师邮箱为 CSV",
+    text: "提取懂车帝上比亚迪秦L的售价与续航配置",
   },
   {
     icon: Search,
-    text: "查找清华大学计算机系教师信息",
+    text: "爬取链家网建邺区最新二手房的小区均价",
   },
   {
     icon: MessageSquare,
-    text: "帮我获取浙大数学学院教师联系方式",
+    text: "每日监控 ProductHunt 榜单上排名前十的智能体",
   },
 ];
 
 const rotatingTips = [
-  "💡 试试说：「帮我抓取南京大学计算机学院教师邮箱」",
-  "💡 试试说：「导出北京大学已抓取的数据」",
-  "💡 试试说：「补充清华大学计算机系缺失的邮箱」",
+  "💡 试试说：「抓取小红书关于AI大模型的热门笔记」",
+  "💡 试试说：「提取懂车帝上比亚迪秦L的售价与续航配置」",
+  "💡 试试说：「每天定时监控 ProductHunt 上的 AI 智能体」",
 ];
 
 const containerVariants = {
@@ -104,40 +104,35 @@ export function EmptyState({
             ease: "easeInOut",
           }}
         />
-        {/* Subtle third glow */}
-        <motion.div
-          className="absolute top-1/3 right-1/4 h-[300px] w-[300px] rounded-full bg-primary/[0.02] blur-3xl"
-          animate={{
-            x: [0, 10, -15, 0],
-            y: [0, -10, 5, 0],
-          }}
-          transition={{
-            duration: 15,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        />
       </div>
 
       <motion.div
-        className="relative z-10 flex w-full max-w-[560px] flex-col items-center px-6 py-12"
+        className="relative z-10 flex w-full max-w-[560px] flex-col items-center px-6 py-8"
         variants={containerVariants}
         initial="hidden"
         animate="visible"
       >
-        {/* Logo */}
+        {/* Premium Banner Image (Apple-Style Presentation Card) */}
         <motion.div
           variants={itemVariants}
-          className="mb-6 flex items-center justify-center"
+          className="w-full mb-6 relative rounded-2xl overflow-hidden border border-border/40 shadow-2xl shadow-primary/5 aspect-[16/9]"
         >
-          <img src="/logo.png" alt="UniEmail Agent" className="h-28 object-contain img-blend" />
+          <img 
+            src="/hero_banner.png" 
+            alt="AI Workbench Hero" 
+            className="w-full h-full object-cover select-none"
+          />
+          {/* Glass Overlay Text */}
+          <div className="absolute inset-x-0 bottom-0 bg-background/60 backdrop-blur-md border-t border-border/20 p-4 flex justify-between items-center">
+            <div>
+              <h3 className="text-xs font-bold text-foreground">AI 全网信息采集工作台</h3>
+              <p className="text-[10px] text-muted-foreground/80 mt-0.5">一站式帮您搞定数据抓取、API/RSS 订阅与 HTML 报表生成</p>
+            </div>
+            <div className="size-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold shadow-lg shadow-primary/20 shrink-0">
+              Go
+            </div>
+          </div>
         </motion.div>
-        <motion.p
-          variants={itemVariants}
-          className="mb-8 text-center text-sm leading-relaxed text-muted-foreground"
-        >
-          AI 驱动的高校通知系统，自动浏览官网抓取高校通知信息
-        </motion.p>
 
         {/* 上下文恢复卡片 — 继续上次任务 */}
         {showContinueCard && (

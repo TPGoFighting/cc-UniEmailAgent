@@ -11,7 +11,6 @@ export function useKeyboardShortcuts() {
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const editTarget = useUIStore((s) => s.editTarget);
   const setEditTarget = useUIStore((s) => s.setEditTarget);
-  const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const universityOpen = useUIStore((s) => s.universityOpen);
   const setUniversityOpen = useUIStore((s) => s.setUniversityOpen);
   const mailOpen = useUIStore((s) => s.mailOpen);
@@ -81,7 +80,6 @@ export function useKeyboardShortcuts() {
     setSidebarOpen,
     editTarget,
     setEditTarget,
-    setSettingsOpen,
     universityOpen,
     setUniversityOpen,
     mailOpen,

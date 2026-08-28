@@ -13,13 +13,14 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from agent.exporter import _BASE_OUTPUT_DIR
+from agent.paths import FAC_MAIL_DIR, FAC_ROOT_DIR, FAC_UNIVERSITY_DIR, get_base_output_dir, set_fac_data_dir
 from constants import EMAIL_RE
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = FAC_UNIVERSITY_DIR
 CATALOG_CACHE = DATA_DIR / "universities_catalog.json"
+_BASE_OUTPUT_DIR = get_base_output_dir()
 OFFICIAL_UNDERGRADUATE_XLS_URL = (
     "http://www.moe.gov.cn/jyb_xxgk/s5743/s5744/A03/202506/"
     "W020250729615142156867.xls"
@@ -120,7 +121,7 @@ def _load_cache() -> list[dict[str, Any]] | None:
 
 
 def _save_cache(items: list[dict[str, Any]]) -> None:
-    DATA_DIR.mkdir(exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = [_decorate_university(i) for i in items]
     tmp = CATALOG_CACHE.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -189,26 +190,51 @@ def _tier_match(item: dict[str, Any], tier: str) -> bool:
     return item.get("type", "") == "本科"
 
 
+def _output_dir() -> Path:
+    return get_base_output_dir()
+
+
 def _candidate_output_files() -> list[Path]:
-    if not _BASE_OUTPUT_DIR.exists():
+    base = _output_dir()
+    if not base.exists():
         return []
     allowed = {".csv", ".xlsx", ".html", ".pdf", ".docx", ".md"}
     return [
-        p for p in _BASE_OUTPUT_DIR.rglob("*")
+        p for p in base.rglob("*")
         if p.is_file() and p.suffix.lower() in allowed and p.stat().st_size > 0
     ]
 
 
 def _file_download_url(path: Path) -> str:
-    rel = path.resolve().relative_to(_BASE_OUTPUT_DIR.resolve())
+    rel = path.resolve().relative_to(_output_dir().resolve())
     if len(rel.parts) == 1:
         return f"/api/download/{rel.parts[0]}"
     return f"/api/download/{rel.parts[0]}/{'/'.join(rel.parts[1:])}"
 
 
 def _file_task_id(path: Path) -> str:
-    rel = path.resolve().relative_to(_BASE_OUTPUT_DIR.resolve())
-    return rel.parts[0] if len(rel.parts) > 1 else ""
+    rel = path.resolve().relative_to(_output_dir().resolve())
+    return "/".join(rel.parts[:-1])
+
+
+def _storage_info() -> dict[str, str]:
+    return {
+        "root": str(FAC_ROOT_DIR),
+        "data_dir": str(_output_dir()),
+        "universities_dir": str(FAC_UNIVERSITY_DIR),
+        "mail_dir": str(FAC_MAIL_DIR),
+        "catalog_file": str(CATALOG_CACHE),
+    }
+
+
+def get_storage_info() -> dict[str, str]:
+    return _storage_info()
+
+
+def set_scan_data_dir(path: str, *, persist: bool = True) -> dict[str, str]:
+    global _BASE_OUTPUT_DIR
+    _BASE_OUTPUT_DIR = set_fac_data_dir(path, persist=persist)
+    return _storage_info()
 
 
 def output_stats_for_school(name: str, files: list[Path] | None = None) -> dict[str, Any]:
@@ -295,6 +321,7 @@ def build_university_response(province: str = "", tier: str = "", q: str = "") -
         "total": len(items),
         "groups": groups,
         "provinces": provinces,
+        "storage": _storage_info(),
         "tier_counts": {
             "985": sum(1 for i in all_items if i.get("is_985")),
             "211": sum(1 for i in all_items if i.get("is_211")),
@@ -434,20 +461,41 @@ def parse_table_file(path: Path, limit: int = 200, offset: int = 0, q: str = "",
     }
 
 
-def resolve_table_path(task_id: str, filename: str) -> Path | None:
+def _safe_relative_parts(value: str) -> list[str] | None:
+    value = (value or "").strip().replace("\\", "/")
+    if not value:
+        return []
+    parts = [part for part in value.split("/") if part]
+    for part in parts:
+        if part in (".", "..") or ".." in part or ":" in part:
+            return None
+    return parts
+
+
+def _resolve_output_file(task_id: str, filename: str, allowed_suffixes: set[str] | None = None) -> Path | None:
     if not filename or ".." in filename or "/" in filename or "\\" in filename:
         return None
-    base = _BASE_OUTPUT_DIR.resolve()
-    if task_id:
-        safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-        candidate = (base / safe_tid / filename).resolve()
-    else:
-        candidate = (base / filename).resolve()
-    if not str(candidate).startswith(str(base) + os.sep) or not candidate.exists():
+    task_parts = _safe_relative_parts(task_id)
+    if task_parts is None:
         return None
-    if candidate.suffix.lower() not in (".csv", ".xlsx"):
+    base = _output_dir().resolve()
+    candidate = base
+    for part in task_parts:
+        candidate = candidate / part
+    candidate = (candidate / filename).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return None
+    if not candidate.exists():
+        return None
+    if allowed_suffixes is not None and candidate.suffix.lower() not in allowed_suffixes:
         return None
     return candidate
+
+
+def resolve_table_path(task_id: str, filename: str) -> Path | None:
+    return _resolve_output_file(task_id, filename, {".csv", ".xlsx"})
 
 
 # ── CSV/XLSX 写操作 ──────────────────────────────────────────
@@ -532,7 +580,7 @@ def delete_table_row(path: Path, row_index: int) -> dict[str, Any]:
 def upload_university_file(name: str, file_bytes: bytes, filename: str) -> dict[str, Any]:
     """上传文件到高校专属上传目录。"""
     safe_name = name.replace("/", "_").replace("\\", "_").replace("..", "_")
-    upload_dir = _BASE_OUTPUT_DIR / "__uploads__" / safe_name
+    upload_dir = _output_dir() / "__uploads__" / safe_name
     upload_dir.mkdir(parents=True, exist_ok=True)
     dest = upload_dir / filename
     if dest.exists():
@@ -547,10 +595,8 @@ def upload_university_file(name: str, file_bytes: bytes, filename: str) -> dict[
 
 def delete_university_file(task_id: str, filename: str) -> None:
     """删除输出目录中的文件。"""
-    base = _BASE_OUTPUT_DIR.resolve()
-    safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_") if task_id else ""
-    path = (base / safe_tid / filename).resolve() if safe_tid else (base / filename).resolve()
-    if not str(path).startswith(str(base) + os.sep):
+    path = _resolve_output_file(task_id, filename)
+    if path is None:
         raise ValueError("非法文件路径")
     if not path.exists():
         raise FileNotFoundError(f"文件 {filename} 不存在")
@@ -561,11 +607,19 @@ def rename_university_file(task_id: str, old_filename: str, new_filename: str) -
     """重命名输出目录中的文件。"""
     if ".." in new_filename or "/" in new_filename or "\\" in new_filename:
         raise ValueError("新文件名包含非法字符")
-    base = _BASE_OUTPUT_DIR.resolve()
-    safe_tid = task_id.replace("/", "_").replace("\\", "_").replace("..", "_") if task_id else ""
-    old_path = (base / safe_tid / old_filename).resolve() if safe_tid else (base / old_filename).resolve()
-    new_path = (base / safe_tid / new_filename).resolve() if safe_tid else (base / new_filename).resolve()
-    if not str(old_path).startswith(str(base) + os.sep) or not str(new_path).startswith(str(base) + os.sep):
+    base = _output_dir().resolve()
+    task_parts = _safe_relative_parts(task_id)
+    if task_parts is None:
+        raise ValueError("非法文件路径")
+    parent = base
+    for part in task_parts:
+        parent = parent / part
+    old_path = (parent / old_filename).resolve()
+    new_path = (parent / new_filename).resolve()
+    try:
+        old_path.relative_to(base)
+        new_path.relative_to(base)
+    except ValueError:
         raise ValueError("非法文件路径")
     if not old_path.exists():
         raise FileNotFoundError(f"文件 {old_filename} 不存在")
